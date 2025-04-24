@@ -645,6 +645,55 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	return errs
 }
 
+func (t *Translator) translateSecurityPolicyForTCPRoute(
+    policy *egv1a1.SecurityPolicy,  route RouteContext,
+    xdsIR resource.XdsIRMap,
+) error {
+    // Only authorization is supported for TCP routes
+   var (
+		authorization *ir.Authorization
+		err, errs     error
+	)
+
+    if policy.Spec.Authorization != nil {
+		if authorization, err = t.buildAuthorization(policy); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+
+    // Apply IR to TCP routes
+    prefix := irRoutePrefix(route)
+    parentRefs := GetParentReferences(route)
+    for _, p := range parentRefs {
+        parentRefCtx := GetRouteParentContext(route, p)
+        gtwCtx := parentRefCtx.GetGateway()
+        if gtwCtx == nil {
+            continue
+        }
+
+        irKey := t.getIRKey(gtwCtx.Gateway)
+		for _, listener := range parentRefCtx.listeners {
+			irListener := xdsIR[irKey].GetHTTPListener(irListenerName(listener))
+			if irListener != nil {
+				for _, r := range irListener.Routes {
+					if strings.HasPrefix(r.Name, prefix) {
+						r.Security = &ir.SecurityFeatures{
+							Authorization: authorization,
+						}
+						if errs != nil {
+							// Return a 500 direct response to avoid unauthorized access
+							r.DirectResponse = &ir.CustomResponse{
+								StatusCode: ptr.To(uint32(500)),
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return errs
+}
+
 func (t *Translator) translateSecurityPolicyForGateway(
 	policy *egv1a1.SecurityPolicy,
 	gateway *GatewayContext,
@@ -770,51 +819,6 @@ func (t *Translator) translateSecurityPolicyForGateway(
 		}
 	}
 	return errs
-}
-
-func (t *Translator) translateSecurityPolicyForTCPRoute(
-    policy *egv1a1.SecurityPolicy,
-    route RouteContext,
-    resources *resource.Resources,
-    xdsIR resource.XdsIRMap,
-) error {
-    // Only authorization is supported for TCP routes
-    var authorization *ir.Authorization
-    var err error
-
-    if policy.Spec.Authorization != nil {
-        if authorization, err = t.buildAuthorization(policy); err != nil {
-            return err
-        }
-    }
-
-    // Apply IR to TCP routes
-    prefix := irRoutePrefix(route)
-    parentRefs := GetParentReferences(route)
-    for _, p := range parentRefs {
-        parentRefCtx := GetRouteParentContext(route, p)
-        gtwCtx := parentRefCtx.GetGateway()
-        if gtwCtx == nil {
-            continue
-        }
-
-        irKey := t.getIRKey(gtwCtx.Gateway)
-        for _, listener := range parentRefCtx.listeners {
-            irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
-            if irListener != nil {
-                for _, r := range irListener.Routes {
-                    if strings.HasPrefix(r.Name, prefix) {
-                        if r.Security == nil {
-                            r.Security = &ir.SecurityFeatures{
-                                Authorization: authorization,
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return nil
 }
 
 func (t *Translator) buildCORS(cors *egv1a1.CORS) *ir.CORS {
