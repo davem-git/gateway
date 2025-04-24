@@ -29,6 +29,10 @@ networking:
   dnsSearch: []
 nodes:
 - role: control-plane
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+    endpoint = ["http://host.docker.internal:5000"]
 EOM
 )
 
@@ -165,4 +169,3 @@ echo "Applying configuration with retries..."
     sleep $RETRY_INTERVAL
     ELAPSED_TIME=$((ELAPSED_TIME + RETRY_INTERVAL))
   done
-

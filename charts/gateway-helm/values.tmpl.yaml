@@ -92,7 +92,7 @@ config:
       type: Kubernetes
     logging:
       level:
-        default: info
+        default: debug
 
 createNamespace: false
 
