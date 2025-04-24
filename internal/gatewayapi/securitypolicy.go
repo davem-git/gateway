@@ -747,11 +747,15 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
     if policy.Spec.Authorization != nil {
 		if authorization, err = t.buildAuthorization(policy); err != nil {
 			errs = errors.Join(errs, err)
+			
 		}
+		fmt.Printf("  Built authorization with rules: %+v\n", authorization)
 	}
 
     // Apply IR to TCP routes
     prefix := irRoutePrefix(route)
+	fmt.Printf("  Using route prefix: %s\n", prefix)
+
     parentRefs := GetParentReferences(route)
     for _, p := range parentRefs {
 		fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
@@ -761,31 +765,40 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
         parentRefCtx := GetRouteParentContext(route, p)
         gtwCtx := parentRefCtx.GetGateway()
         if gtwCtx == nil {
+			fmt.Printf("    Gateway context is nil, skipping\n")
             continue
         }
 
         irKey := t.getIRKey(gtwCtx.Gateway)
+		fmt.Printf("    Using IR Key: %v\n", irKey)
+
 		for _, listener := range parentRefCtx.listeners {
 			fmt.Printf("      Processing listener: %v\n", listener.Name)
 			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
-			if irListener != nil {
-				for _, r := range irListener.Routes {
-					if strings.HasPrefix(r.Name, prefix) {
-						r.Security = &ir.SecurityFeatures{
-							Authorization: authorization,
-						}
-						if errs != nil {
-							fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
-							// Return a 500 direct response to avoid unauthorized access
-							r.DirectResponse = &ir.CustomResponse{
-								StatusCode: ptr.To(uint32(500)),
+			if irListener == nil {
+				fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
+				continue
+			}
+			// if irListener != nil {
+			fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
+			for _, r := range irListener.Routes {
+				fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
+				if strings.HasPrefix(r.Name, prefix) {
+					fmt.Printf("          Adding security to route: %s\n", r.Name)
+					r.Security = &ir.SecurityFeatures{
+						Authorization: authorization,
+					}
+					if errs != nil {
+						fmt.Printf("          Error occurred, adding direct response\n")
+						// Return a 500 direct response to avoid unauthorized access
+						r.DirectResponse = &ir.CustomResponse{
+							StatusCode: ptr.To(uint32(500)),
 							}
 						}
 					}
 				}
 			}
 		}
-	}
 	return errs
 }
 
