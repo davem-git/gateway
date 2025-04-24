@@ -735,7 +735,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 
 func (t *Translator) translateSecurityPolicyForTCPRoute(
     policy *egv1a1.SecurityPolicy,  route RouteContext,
-    xdsIR resource.XdsIRMap,
+    resources *resource.Resources, xdsIR resource.XdsIRMap,
 ) error {
     // Only authorization is supported for TCP routes
    var (
@@ -761,7 +761,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 
         irKey := t.getIRKey(gtwCtx.Gateway)
 		for _, listener := range parentRefCtx.listeners {
-			irListener := xdsIR[irKey].GetHTTPListener(irListenerName(listener))
+			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
 			if irListener != nil {
 				for _, r := range irListener.Routes {
 					if strings.HasPrefix(r.Name, prefix) {
