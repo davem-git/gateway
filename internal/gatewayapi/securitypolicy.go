@@ -665,8 +665,8 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 	}
 
     // Apply IR to TCP routes
-    prefix := irRoutePrefix(route)
-	fmt.Printf("  Using route prefix: %s\n", prefix)
+    prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
+    fmt.Printf("  Using route prefix (trimmed): %s\n", prefix)
 
     parentRefs := GetParentReferences(route)
     for _, p := range parentRefs {
