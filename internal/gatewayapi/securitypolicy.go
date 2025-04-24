@@ -732,25 +732,23 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	}
 	return errs
 }
-
 func (t *Translator) translateSecurityPolicyForTCPRoute(
-    policy *egv1a1.SecurityPolicy,  route RouteContext,
+    policy *egv1a1.SecurityPolicy, route RouteContext,
     xdsIR resource.XdsIRMap,
 ) error {
-	fmt.Printf("Translating TCP security policy for route: %s\n", route.GetName())
-    // Only authorization is supported for TCP routes
-	var (
-		authorization *ir.Authorization
-		err, errs     error
-	)
+    fmt.Printf("Translating TCP security policy for route: %s\n", route.GetName())
+    var (
+        authorization *ir.Authorization
+        err, errs    error
+    )
 
     if policy.Spec.Authorization != nil {
-		if authorization, err = t.buildAuthorization(policy); err != nil {
-			errs = errors.Join(errs, err)
-			
-		}
-		fmt.Printf("  Built authorization with rules: %+v\n", authorization)
-	}
+        if authorization, err = t.buildAuthorization(policy); err != nil {
+            errs = errors.Join(errs, err)
+            fmt.Printf("  Error building authorization: %v\n", err)
+        }
+        fmt.Printf("  Built authorization with rules: %+v\n", authorization)
+    }
 
     // Apply IR to TCP routes
     prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
@@ -758,49 +756,124 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 
     parentRefs := GetParentReferences(route)
     for _, p := range parentRefs {
-		fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
-            p.Kind, 
-            p.Name,
-            p.SectionName)
+        fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
+            p.Kind, p.Name, p.SectionName)
+        
         parentRefCtx := GetRouteParentContext(route, p)
         gtwCtx := parentRefCtx.GetGateway()
         if gtwCtx == nil {
-			fmt.Printf("    Gateway context is nil, skipping\n")
+            fmt.Printf("    Gateway context is nil, skipping\n")
             continue
         }
 
         irKey := t.getIRKey(gtwCtx.Gateway)
-		fmt.Printf("    Using IR Key: %v\n", irKey)
+        fmt.Printf("    Using IR Key: %v\n", irKey)
 
-		for _, listener := range parentRefCtx.listeners {
-			fmt.Printf("      Processing listener: %v\n", listener.Name)
-			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
-			if irListener == nil {
-				fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
-				continue
-			}
-			// if irListener != nil {
-			fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
-			for _, r := range irListener.Routes {
-				fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
-				if strings.HasPrefix(r.Name, prefix) {
-					fmt.Printf("          Adding security to route: %s\n", r.Name)
-					r.Security = &ir.SecurityFeatures{
-						Authorization: authorization,
-					}
-					if errs != nil {
-						fmt.Printf("          Error occurred, adding direct response\n")
-						// Return a 500 direct response to avoid unauthorized access
-						r.DirectResponse = &ir.CustomResponse{
-							StatusCode: ptr.To(uint32(500)),
-							}
-						}
-					}
-				}
-			}
-		}
-	return errs
+        for _, listener := range parentRefCtx.listeners {
+            fmt.Printf("      Processing listener: %v\n", listener.Name)
+            irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
+            if irListener == nil {
+                fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
+                continue
+            }
+
+            fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
+            for _, r := range irListener.Routes {
+                fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
+                if r.Name == prefix {
+                    fmt.Printf("          Adding security to route: %s\n", r.Name)
+                    r.Security = &ir.SecurityFeatures{
+                        Authorization: authorization,
+                    }
+                    if errs != nil {
+                        fmt.Printf("          Error occurred, adding direct response\n")
+                        r.DirectResponse = &ir.CustomResponse{
+                            StatusCode: ptr.To(uint32(500)),
+                        }
+                    } else {
+                        fmt.Printf("          Successfully added security features\n")
+                    }
+                }
+            }
+        }
+    }
+    
+    if errs != nil {
+        fmt.Printf("Completed with errors: %v\n", errs)
+    } else {
+        fmt.Printf("Completed successfully\n")
+    }
+    
+    return errs
 }
+// func (t *Translator) translateSecurityPolicyForTCPRoute(
+//     policy *egv1a1.SecurityPolicy,  route RouteContext,
+//     xdsIR resource.XdsIRMap,
+// ) error {
+// 	fmt.Printf("Translating TCP security policy for route: %s\n", route.GetName())
+//     // Only authorization is supported for TCP routes
+// 	var (
+// 		authorization *ir.Authorization
+// 		err, errs     error
+// 	)
+
+//     if policy.Spec.Authorization != nil {
+// 		if authorization, err = t.buildAuthorization(policy); err != nil {
+// 			errs = errors.Join(errs, err)
+			
+// 		}
+// 		fmt.Printf("  Built authorization with rules: %+v\n", authorization)
+// 	}
+
+//     // Apply IR to TCP routes
+//     prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
+//     fmt.Printf("  Using route prefix (trimmed): %s\n", prefix)
+
+//     parentRefs := GetParentReferences(route)
+//     for _, p := range parentRefs {
+// 		fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
+//             p.Kind, 
+//             p.Name,
+//             p.SectionName)
+//         parentRefCtx := GetRouteParentContext(route, p)
+//         gtwCtx := parentRefCtx.GetGateway()
+//         if gtwCtx == nil {
+// 			fmt.Printf("    Gateway context is nil, skipping\n")
+//             continue
+//         }
+
+//         irKey := t.getIRKey(gtwCtx.Gateway)
+// 		fmt.Printf("    Using IR Key: %v\n", irKey)
+
+// 		for _, listener := range parentRefCtx.listeners {
+// 			fmt.Printf("      Processing listener: %v\n", listener.Name)
+// 			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
+// 			if irListener == nil {
+// 				fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
+// 				continue
+// 			}
+// 			// if irListener != nil {
+// 			fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
+// 			for _, r := range irListener.Routes {
+// 				fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
+// 				if strings.HasPrefix(r.Name, prefix) {
+// 					fmt.Printf("          Adding security to route: %s\n", r.Name)
+// 					r.Security = &ir.SecurityFeatures{
+// 						Authorization: authorization,
+// 					}
+// 					if errs != nil {
+// 						fmt.Printf("          Error occurred, adding direct response\n")
+// 						// Return a 500 direct response to avoid unauthorized access
+// 						r.DirectResponse = &ir.CustomResponse{
+// 							StatusCode: ptr.To(uint32(500)),
+// 							}
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 	return errs
+// }
 
 func (t *Translator) translateSecurityPolicyForGateway(
 	policy *egv1a1.SecurityPolicy,
