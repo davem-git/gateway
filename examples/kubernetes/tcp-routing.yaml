@@ -150,7 +150,7 @@ spec:
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name:  tcp-app-2
+  name:  tcp-app-2-security-policy
 spec:
   targetRefs:
   - group: gateway.networking.k8s.io
