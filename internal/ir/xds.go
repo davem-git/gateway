@@ -1907,7 +1907,11 @@ func (t TCPRoute) Validate() error {
 			errs = errors.Join(errs, err)
 		}
 	}
-
+	if t.DirectResponse != nil {
+		if err := t.DirectResponse.Validate(); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
 	if t.HealthCheck != nil {
 		if err := t.HealthCheck.Validate(); err != nil {
 			errs = errors.Join(errs, err)
