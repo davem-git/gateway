@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
@@ -650,15 +651,18 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
     resources *resource.Resources, xdsIR resource.XdsIRMap,
 ) error {
     // Only authorization is supported for TCP routes
-   var (
+	klog.Infof("Translating TCP security policy for route: %s", route.GetName())
+	var (
 		authorization *ir.Authorization
 		err, errs     error
 	)
 
     if policy.Spec.Authorization != nil {
 		if authorization, err = t.buildAuthorization(policy); err != nil {
+			klog.Errorf("Failed to build authorization: %v", err)
 			errs = errors.Join(errs, err)
 		}
+		klog.Infof("Built authorization with CIDRs: %v", policy.Spec.Authorization.Rules[0].Principal.ClientCIDRs)
 	}
 
     // Apply IR to TCP routes
