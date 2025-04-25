@@ -1688,11 +1688,9 @@ func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy, protocol 
     irAuth.DefaultAction = defaultAction
 
     for i, rule := range authorization.Rules {
-        irPrincipal := ir.Principal{}
-        
-        // For TCP routes, we want to explicitly set UseDownstreamSourceIP
-        if len(protocol) > 0 && protocol[0] == ir.TCP {
-            irPrincipal.UseDownstreamSourceIP = true
+        // Set UseDownstreamSourceIP true by default for TCP
+        irPrincipal := ir.Principal{
+            UseDownstreamSourceIP: len(protocol) > 0 && protocol[0] == ir.TCP,
         }
 
         for _, cidr := range rule.Principal.ClientCIDRs {
