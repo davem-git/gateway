@@ -694,6 +694,16 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                 fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
                 if r.Name == prefix {
                     fmt.Printf("          Adding security to route: %s\n", r.Name)
+                    // Add network RBAC filter to the listener
+                    irListener.NetworkFilters = append(irListener.NetworkFilters, &ir.NetworkFilter{
+                        Name: "envoy.filters.network.rbac",
+                        Config: &ir.RBACConfig{
+                            Rules:         authorization.Rules,
+                            DefaultAction: authorization.DefaultAction,
+                            StatPrefix:    "tcp_",
+                        },
+                    })
+                    // Keep the security features for consistency
                     r.Security = &ir.SecurityFeatures{
                         Authorization: authorization,
                     }
@@ -703,7 +713,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                             StatusCode: ptr.To(uint32(500)),
                         }
                     } else {
-                        fmt.Printf("          Successfully added security features\n")
+                        fmt.Printf("          Successfully added security features and RBAC filter\n")
                     }
                 }
             }

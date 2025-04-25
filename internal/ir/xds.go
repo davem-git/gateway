@@ -1971,6 +1971,8 @@ type TCPListener struct {
 	Connection *ClientConnection `json:"connection,omitempty" yaml:"connection,omitempty"`
 	// Routes associated with TCP traffic to the listener.
 	Routes []*TCPRoute `json:"routes,omitempty" yaml:"routes,omitempty"`
+
+	NetworkFilters []*NetworkFilter
 }
 
 // TCPRoute holds the route information associated with the TCP Route
@@ -2486,6 +2488,25 @@ type TCPKeepalive struct {
 	// Defaults to `75s`.
 	Interval *uint32 `json:"interval,omitempty" yaml:"interval,omitempty"`
 }
+
+type NetworkFilter struct {
+    Name   string
+    Config *RBACConfig
+}
+
+type RBACConfig struct {
+    Rules         []*AuthorizationRule
+    DefaultAction egv1a1.AuthorizationAction  // Use the type from egv1a1 package
+    StatPrefix    string
+}
+
+type AuthorizationAction string
+
+const (
+    // Define the possible actions
+    Allow AuthorizationAction = "Allow"
+    Deny  AuthorizationAction = "Deny"
+)
 
 // LoadBalancer defines the load balancer settings.
 // +k8s:deepcopy-gen=true
