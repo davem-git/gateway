@@ -701,6 +701,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                             Rules:         authorization.Rules,
                             DefaultAction: authorization.DefaultAction,
                             StatPrefix:    "tcp_",
+							SourceIPEnforcement: true,
                         },
                     })
                     // Keep the security features for consistency
@@ -1709,50 +1710,102 @@ func backendRefAuthority(resources *resource.Resources, backendRef *gwapiv1.Back
 	return fmt.Sprintf("%s.%s", backendRef.Name, backendNamespace)
 }
 
-func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy) (*ir.Authorization, error) {
-	var (
-		authorization = policy.Spec.Authorization
-		irAuth        = &ir.Authorization{}
-		// The default action is Deny if not specified
-		defaultAction = egv1a1.AuthorizationActionDeny
-	)
+func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy, protocol ...ir.AppProtocol) (*ir.Authorization, error) {
+    var (
+        authorization = policy.Spec.Authorization
+        irAuth       = &ir.Authorization{}
+        defaultAction = egv1a1.AuthorizationActionDeny
+    )
 
-	if authorization.DefaultAction != nil {
-		defaultAction = *authorization.DefaultAction
-	}
-	irAuth.DefaultAction = defaultAction
+    if authorization.DefaultAction != nil {
+        defaultAction = *authorization.DefaultAction
+    }
+    irAuth.DefaultAction = defaultAction
 
-	for i, rule := range authorization.Rules {
-		irPrincipal := ir.Principal{}
+    for i, rule := range authorization.Rules {
+        irPrincipal := ir.Principal{}
+        
+        // For TCP routes, we want to explicitly set UseDownstreamSourceIP
+        if len(protocol) > 0 && protocol[0] == ir.TCP {
+            irPrincipal.UseDownstreamSourceIP = true
+        }
 
-		for _, cidr := range rule.Principal.ClientCIDRs {
-			cidrMatch, err := parseCIDR(string(cidr))
-			if err != nil {
-				return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
-			}
+        for _, cidr := range rule.Principal.ClientCIDRs {
+            cidrMatch, err := parseCIDR(string(cidr))
+            if err != nil {
+                return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
+            }
+            irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
+        }
 
-			irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
-		}
+        // Only add JWT and Headers for HTTP
+        if len(protocol) == 0 || protocol[0] == ir.HTTP {
+            irPrincipal.JWT = rule.Principal.JWT
+            irPrincipal.Headers = rule.Principal.Headers
+        }
 
-		irPrincipal.JWT = rule.Principal.JWT
-		irPrincipal.Headers = rule.Principal.Headers
+        var name string
+        if rule.Name != nil && *rule.Name != "" {
+            name = *rule.Name
+        } else {
+            name = defaultAuthorizationRuleName(policy, i)
+        }
 
-		var name string
-		if rule.Name != nil && *rule.Name != "" {
-			name = *rule.Name
-		} else {
-			name = defaultAuthorizationRuleName(policy, i)
-		}
-		irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
-			Name:      name,
-			Action:    rule.Action,
-			Operation: rule.Operation,
-			Principal: irPrincipal,
-		})
-	}
+        irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
+            Name:      name,
+            Action:    rule.Action,
+            Operation: rule.Operation,
+            Principal: irPrincipal,
+        })
+    }
 
-	return irAuth, nil
+    return irAuth, nil
 }
+
+// func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy) (*ir.Authorization, error) {
+// 	var (
+// 		authorization = policy.Spec.Authorization
+// 		irAuth        = &ir.Authorization{}
+// 		// The default action is Deny if not specified
+// 		defaultAction = egv1a1.AuthorizationActionDeny
+// 	)
+
+// 	if authorization.DefaultAction != nil {
+// 		defaultAction = *authorization.DefaultAction
+// 	}
+// 	irAuth.DefaultAction = defaultAction
+
+// 	for i, rule := range authorization.Rules {
+// 		irPrincipal := ir.Principal{}
+
+// 		for _, cidr := range rule.Principal.ClientCIDRs {
+// 			cidrMatch, err := parseCIDR(string(cidr))
+// 			if err != nil {
+// 				return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
+// 			}
+
+// 			irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
+// 		}
+
+// 		irPrincipal.JWT = rule.Principal.JWT
+// 		irPrincipal.Headers = rule.Principal.Headers
+
+// 		var name string
+// 		if rule.Name != nil && *rule.Name != "" {
+// 			name = *rule.Name
+// 		} else {
+// 			name = defaultAuthorizationRuleName(policy, i)
+// 		}
+// 		irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
+// 			Name:      name,
+// 			Action:    rule.Action,
+// 			Operation: rule.Operation,
+// 			Principal: irPrincipal,
+// 		})
+// 	}
+
+// 	return irAuth, nil
+// }
 
 func defaultAuthorizationRuleName(policy *egv1a1.SecurityPolicy, index int) string {
 	return fmt.Sprintf(

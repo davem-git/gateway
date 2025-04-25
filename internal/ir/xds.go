@@ -1361,6 +1361,8 @@ type Principal struct {
 	JWT *egv1a1.JWTPrincipal `json:"jwt,omitempty"`
 	// Headers defines the headers to be matched.
 	Headers []egv1a1.AuthorizationHeaderMatch `json:"headers,omitempty"`
+	// USED DOWNSTREAM_SOURCE_IP is used to match the source IP of the downstream client.
+	UseDownstreamSourceIP bool
 }
 
 // FaultInjection defines the schema for injecting faults into requests.
@@ -2498,6 +2500,7 @@ type RBACConfig struct {
     Rules         []*AuthorizationRule
     DefaultAction egv1a1.AuthorizationAction  // Use the type from egv1a1 package
     StatPrefix    string
+	SourceIPEnforcement bool
 }
 
 type AuthorizationAction string
