@@ -733,11 +733,10 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	return errs
 }
 
-func (t *Translator) translateSecurityPolicyForTCPRoute(
+unc (t *Translator) translateSecurityPolicyForTCPRoute(
     policy *egv1a1.SecurityPolicy, route RouteContext,
     xdsIR resource.XdsIRMap,
 ) error {
-    fmt.Printf("Translating TCP security policy for route: %s\n", route.GetName())
     var (
         authorization *ir.Authorization
         err, errs    error
@@ -746,7 +745,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
     if policy.Spec.Authorization != nil {
         if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
             errs = errors.Join(errs, err)
-            fmt.Printf("  Error building authorization: %v\n", err)
+            return errs
         }
     }
 
@@ -766,26 +765,28 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                 continue
             }
 
-            // Create TCP RBAC filter configuration
+            // Create base filters if none exist
+            if irListener.NetworkFilters == nil {
+                irListener.NetworkFilters = make([]*ir.NetworkFilter, 0)
+            }
+
+            // Create TCP RBAC filter
             rbacFilter := &ir.NetworkFilter{
                 Name: "envoy.filters.network.rbac",
                 Config: &ir.RBACConfig{
-                    Rules: authorization.Rules, // Use full authorization rules
-                    DefaultAction: authorization.DefaultAction,
-                    StatPrefix:    "tcp_rbac_",
+                    Rules:               authorization.Rules,
+                    DefaultAction:       authorization.DefaultAction,
+                    StatPrefix:         "tcp_rbac",
                     SourceIPEnforcement: true,
                 },
             }
 
-            // Ensure NetworkFilters is initialized 
-            if irListener.NetworkFilters == nil {
-                irListener.NetworkFilters = []*ir.NetworkFilter{}
-            }
+            // Replace existing filters with RBAC first, then TCP proxy
+            existingFilters := irListener.NetworkFilters
+            irListener.NetworkFilters = []*ir.NetworkFilter{rbacFilter}
+            irListener.NetworkFilters = append(irListener.NetworkFilters, existingFilters...)
 
-            // Add RBAC filter at beginning of chain
-            irListener.NetworkFilters = append([]*ir.NetworkFilter{rbacFilter}, irListener.NetworkFilters...)
-
-            // Add security features to matching routes
+            // Update route security
             for _, r := range irListener.Routes {
                 if r.Name == prefix {
                     r.Security = &ir.SecurityFeatures{

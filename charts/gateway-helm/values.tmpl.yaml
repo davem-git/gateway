@@ -93,6 +93,8 @@ config:
     logging:
       level:
         default: debug
+    admin:
+      enableDumpConfig: true
 
 createNamespace: false
 
