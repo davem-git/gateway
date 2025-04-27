@@ -770,27 +770,22 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
             rbacFilter := &ir.NetworkFilter{
                 Name: "envoy.filters.network.rbac",
                 Config: &ir.RBACConfig{
-                    Rules: []*ir.AuthorizationRule{{
-                        Name:   fmt.Sprintf("%s/tcp-rbac", prefix),
-                        Action: authorization.DefaultAction,
-                        Principal: ir.Principal{
-                            UseDownstreamSourceIP: true,
-                            ClientCIDRs:          authorization.Rules[0].Principal.ClientCIDRs,
-                        },
-                    }},
-                    DefaultAction:       authorization.DefaultAction,
-                    StatPrefix:         "tcp_rbac_",
+                    Rules: authorization.Rules, // Use full authorization rules
+                    DefaultAction: authorization.DefaultAction,
+                    StatPrefix:    "tcp_rbac_",
                     SourceIPEnforcement: true,
                 },
             }
 
-            // Ensure NetworkFilters is initialized and add filter at the beginning
+            // Ensure NetworkFilters is initialized 
             if irListener.NetworkFilters == nil {
                 irListener.NetworkFilters = []*ir.NetworkFilter{}
             }
+
+            // Add RBAC filter at beginning of chain
             irListener.NetworkFilters = append([]*ir.NetworkFilter{rbacFilter}, irListener.NetworkFilters...)
 
-            // Add security features to route
+            // Add security features to matching routes
             for _, r := range irListener.Routes {
                 if r.Name == prefix {
                     r.Security = &ir.SecurityFeatures{
