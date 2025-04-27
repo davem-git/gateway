@@ -733,7 +733,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	return errs
 }
 
-unc (t *Translator) translateSecurityPolicyForTCPRoute(
+func (t *Translator) translateSecurityPolicyForTCPRoute(
     policy *egv1a1.SecurityPolicy, route RouteContext,
     xdsIR resource.XdsIRMap,
 ) error {
