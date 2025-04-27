@@ -765,26 +765,31 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                 continue
             }
 
-            // Create base filters if none exist
-            if irListener.NetworkFilters == nil {
-                irListener.NetworkFilters = make([]*ir.NetworkFilter, 0)
-            }
-
             // Create TCP RBAC filter
             rbacFilter := &ir.NetworkFilter{
                 Name: "envoy.filters.network.rbac",
                 Config: &ir.RBACConfig{
-                    Rules:               authorization.Rules,
-                    DefaultAction:       authorization.DefaultAction,
-                    StatPrefix:         "tcp_rbac",
+                    Rules:              authorization.Rules,
+                    DefaultAction:      authorization.DefaultAction,
+                    StatPrefix:         "tcp_rbac_",
                     SourceIPEnforcement: true,
                 },
             }
 
-            // Replace existing filters with RBAC first, then TCP proxy
-            existingFilters := irListener.NetworkFilters
+            // Keep TCP proxy filter if it exists
+            var tcpProxyFilter *ir.NetworkFilter
+            for _, filter := range irListener.NetworkFilters {
+                if filter.Name == "envoy.filters.network.tcp_proxy" {
+                    tcpProxyFilter = filter
+                    break
+                }
+            }
+
+            // Build new filter chain with RBAC first
             irListener.NetworkFilters = []*ir.NetworkFilter{rbacFilter}
-            irListener.NetworkFilters = append(irListener.NetworkFilters, existingFilters...)
+            if tcpProxyFilter != nil {
+                irListener.NetworkFilters = append(irListener.NetworkFilters, tcpProxyFilter)
+            }
 
             // Update route security
             for _, r := range irListener.Routes {

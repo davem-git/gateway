@@ -43,6 +43,8 @@ data:
   envoy-gateway.yaml: |
     apiVersion: gateway.envoyproxy.io/v1alpha1
     kind: EnvoyGateway
+    admin:
+      enableDumpConfig: true
     gateway:
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
     logging:
