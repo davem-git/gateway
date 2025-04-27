@@ -660,12 +660,9 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
             errs = errors.Join(errs, err)
             fmt.Printf("  Error building authorization: %v\n", err)
         }
-        fmt.Printf("  Built authorization with rules: %+v\n", authorization)
     }
 
     prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
-    fmt.Printf("  Using route prefix (trimmed): %s\n", prefix)
-
     parentRefs := GetParentReferences(route)
     for _, p := range parentRefs {
         parentRefCtx := GetRouteParentContext(route, p)
@@ -681,25 +678,31 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                 continue
             }
 
-            // Create new NetworkFilter
+            // Create TCP RBAC filter configuration
             rbacFilter := &ir.NetworkFilter{
                 Name: "envoy.filters.network.rbac",
                 Config: &ir.RBACConfig{
-                    Rules:               authorization.Rules,
+                    Rules: []*ir.AuthorizationRule{{
+                        Name:   fmt.Sprintf("%s/tcp-rbac", prefix),
+                        Action: authorization.DefaultAction,
+                        Principal: ir.Principal{
+                            UseDownstreamSourceIP: true,
+                            ClientCIDRs:          authorization.Rules[0].Principal.ClientCIDRs,
+                        },
+                    }},
                     DefaultAction:       authorization.DefaultAction,
-                    StatPrefix:         "tcp_",
+                    StatPrefix:         "tcp_rbac_",
                     SourceIPEnforcement: true,
                 },
             }
 
-            // Ensure NetworkFilters is initialized
+            // Ensure NetworkFilters is initialized and add filter at the beginning
             if irListener.NetworkFilters == nil {
                 irListener.NetworkFilters = []*ir.NetworkFilter{}
             }
-
-            // Add the RBAC filter at the beginning of the filter chain
             irListener.NetworkFilters = append([]*ir.NetworkFilter{rbacFilter}, irListener.NetworkFilters...)
 
+            // Add security features to route
             for _, r := range irListener.Routes {
                 if r.Name == prefix {
                     r.Security = &ir.SecurityFeatures{
