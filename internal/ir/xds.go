@@ -1974,7 +1974,7 @@ type TCPListener struct {
 	// Routes associated with TCP traffic to the listener.
 	Routes []*TCPRoute `json:"routes,omitempty" yaml:"routes,omitempty"`
 
-	NetworkFilters []*NetworkFilter
+	NetworkFilters []*NetworkFilter `json:"NetworkFilters,omitempty" yaml:"NetworkFilters,omitempty"`
 }
 
 // TCPRoute holds the route information associated with the TCP Route
@@ -2492,8 +2492,8 @@ type TCPKeepalive struct {
 }
 
 type NetworkFilter struct {
-    Name   string
-    Config *RBACConfig
+    Name   string      `json:"name" yaml:"name"`
+    Config *RBACConfig `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
 type RBACConfig struct {
