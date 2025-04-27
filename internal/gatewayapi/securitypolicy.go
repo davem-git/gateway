@@ -644,6 +644,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	}
 	return errs
 }
+
 func (t *Translator) translateSecurityPolicyForTCPRoute(
     policy *egv1a1.SecurityPolicy, route RouteContext,
     xdsIR resource.XdsIRMap,
@@ -655,80 +656,149 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
     )
 
     if policy.Spec.Authorization != nil {
-        if authorization, err = t.buildAuthorization(policy); err != nil {
+        if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
             errs = errors.Join(errs, err)
             fmt.Printf("  Error building authorization: %v\n", err)
         }
         fmt.Printf("  Built authorization with rules: %+v\n", authorization)
     }
 
-    // Apply IR to TCP routes
     prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
     fmt.Printf("  Using route prefix (trimmed): %s\n", prefix)
 
     parentRefs := GetParentReferences(route)
     for _, p := range parentRefs {
-        fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
-            p.Kind, p.Name, p.SectionName)
-        
         parentRefCtx := GetRouteParentContext(route, p)
         gtwCtx := parentRefCtx.GetGateway()
         if gtwCtx == nil {
-            fmt.Printf("    Gateway context is nil, skipping\n")
             continue
         }
 
         irKey := t.getIRKey(gtwCtx.Gateway)
-        fmt.Printf("    Using IR Key: %v\n", irKey)
-
         for _, listener := range parentRefCtx.listeners {
-            fmt.Printf("      Processing listener: %v\n", listener.Name)
             irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
             if irListener == nil {
-                fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
                 continue
             }
 
-            fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
+            // Create new NetworkFilter
+            rbacFilter := &ir.NetworkFilter{
+                Name: "envoy.filters.network.rbac",
+                Config: &ir.RBACConfig{
+                    Rules:               authorization.Rules,
+                    DefaultAction:       authorization.DefaultAction,
+                    StatPrefix:         "tcp_",
+                    SourceIPEnforcement: true,
+                },
+            }
+
+            // Ensure NetworkFilters is initialized
+            if irListener.NetworkFilters == nil {
+                irListener.NetworkFilters = []*ir.NetworkFilter{}
+            }
+
+            // Add the RBAC filter at the beginning of the filter chain
+            irListener.NetworkFilters = append([]*ir.NetworkFilter{rbacFilter}, irListener.NetworkFilters...)
+
             for _, r := range irListener.Routes {
-                fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
                 if r.Name == prefix {
-                    fmt.Printf("          Adding security to route: %s\n", r.Name)
-                    // Add network RBAC filter to the listener
-                    irListener.NetworkFilters = append(irListener.NetworkFilters, &ir.NetworkFilter{
-                        Name: "envoy.filters.network.rbac",
-                        Config: &ir.RBACConfig{
-                            Rules:         authorization.Rules,
-                            DefaultAction: authorization.DefaultAction,
-                            StatPrefix:    "tcp_",
-							SourceIPEnforcement: true,
-                        },
-                    })
-                    // Keep the security features for consistency
                     r.Security = &ir.SecurityFeatures{
                         Authorization: authorization,
-                    }
-                    if errs != nil {
-                        fmt.Printf("          Error occurred, adding direct response\n")
-                        r.DirectResponse = &ir.CustomResponse{
-                            StatusCode: ptr.To(uint32(500)),
-                        }
-                    } else {
-                        fmt.Printf("          Successfully added security features and RBAC filter\n")
                     }
                 }
             }
         }
     }
     
-    if errs != nil {
-        fmt.Printf("Completed with errors: %v\n", errs)
-    } else {
-        fmt.Printf("Completed successfully\n")
-    }
-    
     return errs
 }
+
+
+// func (t *Translator) translateSecurityPolicyForTCPRoute(
+//     policy *egv1a1.SecurityPolicy, route RouteContext,
+//     xdsIR resource.XdsIRMap,
+// ) error {
+//     fmt.Printf("Translating TCP security policy for route: %s\n", route.GetName())
+//     var (
+//         authorization *ir.Authorization
+//         err, errs    error
+//     )
+
+//     if policy.Spec.Authorization != nil {
+//         if authorization, err = t.buildAuthorization(policy); err != nil {
+//             errs = errors.Join(errs, err)
+//             fmt.Printf("  Error building authorization: %v\n", err)
+//         }
+//         fmt.Printf("  Built authorization with rules: %+v\n", authorization)
+//     }
+
+//     // Apply IR to TCP routes
+//     prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
+//     fmt.Printf("  Using route prefix (trimmed): %s\n", prefix)
+
+//     parentRefs := GetParentReferences(route)
+//     for _, p := range parentRefs {
+//         fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
+//             p.Kind, p.Name, p.SectionName)
+        
+//         parentRefCtx := GetRouteParentContext(route, p)
+//         gtwCtx := parentRefCtx.GetGateway()
+//         if gtwCtx == nil {
+//             fmt.Printf("    Gateway context is nil, skipping\n")
+//             continue
+//         }
+
+//         irKey := t.getIRKey(gtwCtx.Gateway)
+//         fmt.Printf("    Using IR Key: %v\n", irKey)
+
+//         for _, listener := range parentRefCtx.listeners {
+//             fmt.Printf("      Processing listener: %v\n", listener.Name)
+//             irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
+//             if irListener == nil {
+//                 fmt.Printf("        No IR listener found for %s, skipping\n", irListenerName(listener))
+//                 continue
+//             }
+
+//             fmt.Printf("        Found TCP listener with %d routes\n", len(irListener.Routes))
+//             for _, r := range irListener.Routes {
+//                 fmt.Printf("          Checking route: %s against prefix: %s\n", r.Name, prefix)
+//                 if r.Name == prefix {
+//                     fmt.Printf("          Adding security to route: %s\n", r.Name)
+//                     // Add network RBAC filter to the listener
+//                     irListener.NetworkFilters = append(irListener.NetworkFilters, &ir.NetworkFilter{
+//                         Name: "envoy.filters.network.rbac",
+//                         Config: &ir.RBACConfig{
+//                             Rules:         authorization.Rules,
+//                             DefaultAction: authorization.DefaultAction,
+//                             StatPrefix:    "tcp_",
+// 							SourceIPEnforcement: true,
+//                         },
+//                     })
+//                     // Keep the security features for consistency
+//                     r.Security = &ir.SecurityFeatures{
+//                         Authorization: authorization,
+//                     }
+//                     if errs != nil {
+//                         fmt.Printf("          Error occurred, adding direct response\n")
+//                         r.DirectResponse = &ir.CustomResponse{
+//                             StatusCode: ptr.To(uint32(500)),
+//                         }
+//                     } else {
+//                         fmt.Printf("          Successfully added security features and RBAC filter\n")
+//                     }
+//                 }
+//             }
+//         }
+//     }
+    
+//     if errs != nil {
+//         fmt.Printf("Completed with errors: %v\n", errs)
+//     } else {
+//         fmt.Printf("Completed successfully\n")
+//     }
+    
+//     return errs
+// }
 // func (t *Translator) translateSecurityPolicyForTCPRoute(
 //     policy *egv1a1.SecurityPolicy,  route RouteContext,
 //     xdsIR resource.XdsIRMap,
