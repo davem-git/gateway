@@ -688,20 +688,22 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                 },
             }
 
-            // Keep TCP proxy filter if it exists
-            var tcpProxyFilter *ir.NetworkFilter
-            for _, filter := range irListener.NetworkFilters {
-                if filter.Name == "envoy.filters.network.tcp_proxy" {
-                    tcpProxyFilter = filter
-                    break
+            // Create a new filter chain
+            var filters []*ir.NetworkFilter
+            
+            // Add RBAC filter first
+            filters = append(filters, rbacFilter)
+            
+            // Add existing filters second
+            for _, existingFilter := range irListener.NetworkFilters {
+                if existingFilter.Name == "envoy.filters.network.tcp_proxy" {
+                    filters = append(filters, existingFilter)
                 }
             }
-
-            // Build new filter chain with RBAC first
-            irListener.NetworkFilters = []*ir.NetworkFilter{rbacFilter}
-            if tcpProxyFilter != nil {
-                irListener.NetworkFilters = append(irListener.NetworkFilters, tcpProxyFilter)
-            }
+            
+            // Replace the existing filter chain
+            irListener.NetworkFilters = filters
+			fmt.Printf("Updated network filters: %+v\n", irListener.NetworkFilters)
 
             // Update route security
             for _, r := range irListener.Routes {
@@ -711,12 +713,14 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
                     }
                 }
             }
+			for _, l := range xdsIR[irKey].TCP {
+    		fmt.Printf("Final TCP Listener %s filters: %+v\n", l.Name, l.NetworkFilters)
+			}		
         }
     }
     
     return errs
 }
-
 
 // func (t *Translator) translateSecurityPolicyForTCPRoute(
 //     policy *egv1a1.SecurityPolicy, route RouteContext,
