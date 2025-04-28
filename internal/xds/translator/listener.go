@@ -603,7 +603,7 @@ for _, nf := range networkFilters {
                 Action: convertAction(nf.Config.DefaultAction),
                 Policies: convertRules(nf.Config.Rules),
             },
-            EnforcementType: rbacv3.RBAC_CONTINUOUS,
+            EnforcementType: rbacv3.RBAC_ENFORCED,
         }
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
@@ -1112,16 +1112,9 @@ func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
     return principals
 }
 
-func convertCIDR(cidr string) *corev3.CidrRange {
-    // Parse CIDR string into IP and prefix length
-    ip, ipNet, err := net.ParseCIDR(cidr)
-    if err != nil {
-        return nil
-    }
-    
-    ones, _ := ipNet.Mask.Size()
+func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
     return &corev3.CidrRange{
-        AddressPrefix: ip.String(),
-        PrefixLen: wrapperspb.UInt32(uint32(ones)),
+        AddressPrefix: cidr.CIDR,
+        PrefixLen: wrapperspb.UInt32(uint32(cidr.PrefixLen)),
     }
 }
