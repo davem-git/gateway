@@ -598,13 +598,13 @@ for _, nf := range networkFilters {
     if nf.Name == "envoy.filters.network.rbac" {
         // Convert IR RBAC config to Envoy RBAC config
         rbacConfig := &rbacconfig.RBAC{
-            StatPrefix: nf.Config.StatPrefix,
-            Rules: &rbacv3.RBAC{
-                Action: convertAction(nf.Config.DefaultAction),
-                Policies: convertRules(nf.Config.Rules),
-            },
-            EnforcementType: rbacv3.RBAC_ENFORCED,
-        }
+    	StatPrefix: nf.Config.StatPrefix,
+    	Rules: &rbacv3.RBAC{
+        Action: convertAction(nf.Config.DefaultAction),
+        Policies: convertRules(nf.Config.Rules),
+   	},
+   	EnforcementType: 0, // Use 0 for ENFORCED since it's the first enum value
+}
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
             filters = append(filters, f)
@@ -1115,6 +1115,6 @@ func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
 func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
     return &corev3.CidrRange{
         AddressPrefix: cidr.CIDR,
-        PrefixLen: wrapperspb.UInt32(uint32(cidr.PrefixLen)),
+        PrefixLen: wrapperspb.UInt32(uint32(cidr.MaskLen)),
     }
 }
