@@ -627,14 +627,13 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 for _, nf := range networkFilters {
     if nf.Name == "envoy.filters.network.rbac" {
         // Convert IR RBAC config to Envoy RBAC config
-       	rbacConfig := &rbacconfig.RBAC{
+		rbacConfig := &rbacconfig.RBAC{
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
-				Action: convertAction(nf.Config.DefaultAction),  // Use convertAction instead of hardcoding
+				Action: convertAction(nf.Config.DefaultAction),  // This will be DENY for default action
 				Policies: convertRules(nf.Config.Rules),
 			},
-    EnforcementType: 0,  // ENFORCED
-}
+		}
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
             filters = append(filters, f)
@@ -1144,16 +1143,13 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 
 // convertAction converts from the IR authorization action to Envoy's RBAC action
 func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
-    // When we want to ALLOW specific CIDRs, we need to:
-    // 1. Set top-level action to DENY (deny by default)
-    // 2. The policies will then specify which IPs to allow
     switch action {
     case egv1a1.AuthorizationActionAllow:
-        return rbacv3.RBAC_DENY  // Invert - DENY everything except what matches
+        return rbacv3.RBAC_ALLOW  // Keep actions as-is, don't invert
     case egv1a1.AuthorizationActionDeny:
-        return rbacv3.RBAC_ALLOW // Invert - ALLOW everything except what matches
-    default:
         return rbacv3.RBAC_DENY
+    default:
+        return rbacv3.RBAC_DENY  // Default to DENY for safety
     }
 }
 
