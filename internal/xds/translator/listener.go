@@ -7,18 +7,25 @@ package translator
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
 
 	xdscore "github.com/cncf/xds/go/xds/core/v3"
 	matcher "github.com/cncf/xds/go/xds/type/matcher/v3"
+	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/ir"
+	"github.com/envoyproxy/gateway/internal/utils/proto"
+	xdsfilters "github.com/envoyproxy/gateway/internal/xds/filters"
 	mutation_rulesv3 "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	rbacv3 "github.com/envoyproxy/go-control-plane/envoy/config/rbac/v3"
 	tls_inspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	connection_limitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/connection_limit/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	rbacconfig "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/rbac/v3"
 	tcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	udpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	early_header_mutationv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/early_header_mutation/header_mutation/v3"
@@ -35,11 +42,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/utils/ptr"
-
-	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
-	"github.com/envoyproxy/gateway/internal/ir"
-	"github.com/envoyproxy/gateway/internal/utils/proto"
-	xdsfilters "github.com/envoyproxy/gateway/internal/xds/filters"
 )
 
 const (
@@ -581,7 +583,7 @@ func findXdsHTTPRouteConfigName(xdsListener *listenerv3.Listener) string {
 
 func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
 	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
-	connection *ir.ClientConnection,
+	connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
 ) error {
 	if irRoute == nil {
 		return errors.New("tcp listener is nil")
@@ -621,25 +623,51 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 
 	var filters []*listenerv3.Filter
 
-	if connection != nil && connection.ConnectionLimit != nil {
-		cl := buildConnectionLimitFilter(statPrefix, connection)
-		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-			filters = append(filters, clf)
-		} else {
-			return err
-		}
-	}
+// With this correct code:
+for _, nf := range networkFilters {
+    if nf.Name == "envoy.filters.network.rbac" {
+        // Convert IR RBAC config to Envoy RBAC config
+        rbacConfig := &rbacconfig.RBAC{
+            StatPrefix: nf.Config.StatPrefix,
+            Rules: &rbacv3.RBAC{
+                Action: convertAction(nf.Config.DefaultAction),
+                Policies: convertRules(nf.Config.Rules),
+            },
+            EnforcementType: rbacv3.RBAC_CONTINUOUS,
+        }
+        
+        if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
+            filters = append(filters, f)
+        } else {
+            return err
+        }
+    } else {
+        // Handle other filter types
+        return fmt.Errorf("unsupported network filter type: %s", nf.Name)
+    }
+}
+
+
+    if connection != nil && connection.ConnectionLimit != nil {
+        cl := buildConnectionLimitFilter(statPrefix, connection)
+        if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
+            filters = append(filters, clf)
+        } else {
+            return err
+        }
+    }
+
 
 	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
-		filters = append(filters, mgrf)
-	} else {
-		return err
-	}
+        filters = append(filters, mgrf)
+    } else {
+        return err
+    }
 
-	filterChain := &listenerv3.FilterChain{
-		Filters: filters,
-		Name:    irRoute.Name,
-	}
+    filterChain := &listenerv3.FilterChain{
+        Filters: filters,
+        Name:    irRoute.Name,
+    }
 
 	if isTLSPassthrough {
 		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
@@ -1112,4 +1140,53 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	}
 
 	return clientCertDetails
+}
+
+
+func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
+    if action == egv1a1.AuthorizationActionAllow {
+        return rbacv3.RBAC_ALLOW
+    }
+    return rbacv3.RBAC_DENY
+}
+
+func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
+    policies := make(map[string]*rbacv3.Policy)
+    
+    for _, rule := range rules {
+        policies[rule.Name] = &rbacv3.Policy{
+            Principals: convertPrincipals(rule.Principal),
+            // Add other fields as needed
+        }
+    }
+    
+    return policies
+}
+
+func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
+    principals := []*rbacv3.Principal{}
+    
+    for _, cidr := range principal.ClientCIDRs {
+        principals = append(principals, &rbacv3.Principal{
+            Identifier: &rbacv3.Principal_DirectRemoteIp{
+                DirectRemoteIp: convertCIDR(cidr),
+            },
+        })
+    }
+    
+    return principals
+}
+
+func convertCIDR(cidr string) *corev3.CidrRange {
+    // Parse CIDR string into IP and prefix length
+    ip, ipNet, err := net.ParseCIDR(cidr)
+    if err != nil {
+        return nil
+    }
+    
+    ones, _ := ipNet.Mask.Size()
+    return &corev3.CidrRange{
+        AddressPrefix: ip.String(),
+        PrefixLen: wrapperspb.UInt32(uint32(ones)),
+    }
 }
