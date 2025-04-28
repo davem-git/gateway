@@ -93,7 +93,6 @@ config:
     logging:
       level:
         default: debug
-        filter: debug
     admin:
       enableDumpConfig: true
 
