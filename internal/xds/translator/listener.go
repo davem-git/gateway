@@ -638,10 +638,11 @@ for _, nf := range networkFilters {
 		rbacConfig := &rbacconfig.RBAC{
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
-				Action: rbacv3.RBAC_DENY,  // Set default action to DENY
+				// When we want to ALLOW only specific CIDRs, set Action to ALLOW (only allow what matches)
+				Action: convertAction(nf.Config.DefaultAction), 
 				Policies: convertRules(nf.Config.Rules),
-			},
-		}
+    },
+}
 		logger.Info("Created RBAC config",
 					"action", rbacConfig.Rules.Action.String(),
 					"num_policies", len(rbacConfig.Rules.Policies))
