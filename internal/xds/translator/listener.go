@@ -600,11 +600,11 @@ for _, nf := range networkFilters {
        	rbacConfig := &rbacconfig.RBAC{
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
-				Action: rbacv3.RBAC_ALLOW,  // Set to ALLOW - this means "allow only what matches the policies"
+				Action: convertAction(nf.Config.DefaultAction),  // Use convertAction instead of hardcoding
 				Policies: convertRules(nf.Config.Rules),
 			},
-			EnforcementType: 0,  // ENFORCED
-		}
+    EnforcementType: 0,  // ENFORCED
+}
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
             filters = append(filters, f)
@@ -1079,17 +1079,19 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 
 // convertAction converts from the IR authorization action to Envoy's RBAC action
 func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
-    // For ALLOW rules, we want to ALLOW only the specified CIDR and implicitly deny everything else
-    // For DENY rules, we want to DENY only the specified CIDR and implicitly allow everything else
+    // When we want to ALLOW specific CIDRs, we need to:
+    // 1. Set top-level action to DENY (deny by default)
+    // 2. The policies will then specify which IPs to allow
     switch action {
     case egv1a1.AuthorizationActionAllow:
-        return rbacv3.RBAC_ALLOW
+        return rbacv3.RBAC_DENY  // Invert - DENY everything except what matches
     case egv1a1.AuthorizationActionDeny:
-        return rbacv3.RBAC_DENY
+        return rbacv3.RBAC_ALLOW // Invert - ALLOW everything except what matches
     default:
         return rbacv3.RBAC_DENY
     }
 }
+
 // convertRules converts IR authorization rules to Envoy RBAC policies
 func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
     policies := make(map[string]*rbacv3.Policy)
