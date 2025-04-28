@@ -600,11 +600,11 @@ for _, nf := range networkFilters {
        	rbacConfig := &rbacconfig.RBAC{
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
-				Action: convertAction(nf.Config.DefaultAction),
+				Action: rbacv3.RBAC_ALLOW,  // Set to ALLOW - this means "allow only what matches the policies"
 				Policies: convertRules(nf.Config.Rules),
 			},
 			EnforcementType: 0,  // ENFORCED
-}
+		}
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
             filters = append(filters, f)
@@ -1079,13 +1079,14 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 
 // convertAction converts from the IR authorization action to Envoy's RBAC action
 func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
+    // For ALLOW rules, we want to ALLOW only the specified CIDR and implicitly deny everything else
+    // For DENY rules, we want to DENY only the specified CIDR and implicitly allow everything else
     switch action {
     case egv1a1.AuthorizationActionAllow:
         return rbacv3.RBAC_ALLOW
     case egv1a1.AuthorizationActionDeny:
         return rbacv3.RBAC_DENY
     default:
-        // Default to DENY for safety
         return rbacv3.RBAC_DENY
     }
 }
