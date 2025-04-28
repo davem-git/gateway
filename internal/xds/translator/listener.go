@@ -1124,8 +1124,10 @@ func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
 
 // convertCIDR converts IR CIDR match to Envoy CIDR range
 func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
+    // Split the IP from the CIDR format
+    // Use the IP field directly instead of the CIDR field
     return &corev3.CidrRange{
-        AddressPrefix: cidr.CIDR,
-        PrefixLen: wrapperspb.UInt32(uint32(cidr.MaskLen)),
+        AddressPrefix: cidr.IP,          // Use the plain IP address without subnet mask
+        PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
     }
 }
