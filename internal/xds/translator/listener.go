@@ -6,6 +6,7 @@
 package translator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +43,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -596,18 +598,29 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 // With this correct code:
 for _, nf := range networkFilters {
     if nf.Name == "envoy.filters.network.rbac" {
+		logger := log.Log.WithName("tcp-rbac")
+        
+        logger.Info("Processing RBAC filter",
+            "filter_name", nf.Name,
+            "default_action", nf.Config.DefaultAction,
+            "num_rules", len(nf.Config.Rules))
         // Convert IR RBAC config to Envoy RBAC config
 		rbacConfig := &rbacconfig.RBAC{
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
-				Action: convertAction(nf.Config.DefaultAction),  // This will be DENY for default action
+				Action: rbacv3.RBAC_DENY,  // Set default action to DENY
 				Policies: convertRules(nf.Config.Rules),
 			},
 		}
+		logger.Info("Created RBAC config",
+					"action", rbacConfig.Rules.Action.String(),
+					"num_policies", len(rbacConfig.Rules.Policies))
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
             filters = append(filters, f)
+			logger.Info("Added RBAC filter to chain")
         } else {
+			logger.Error(err, "Failed to create network filter")
             return err
         }
     } else {
@@ -1095,14 +1108,9 @@ func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
     for _, rule := range rules {
         policies[rule.Name] = &rbacv3.Policy{
             Principals: convertPrincipals(rule.Principal),
-            // Add a default ANY permission since we want to allow/deny all actions
-            Permissions: []*rbacv3.Permission{
-                {
-                    Rule: &rbacv3.Permission_Any{
-                        Any: true,
-                    },
-                },
-            },
+            Permissions: []*rbacv3.Permission{{
+                Rule: &rbacv3.Permission_Any{Any: true},
+            }},
         }
     }
     
@@ -1111,9 +1119,18 @@ func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
 
 // convertPrincipals converts IR principals to Envoy RBAC principals
 func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
+    logger := log.FromContext(context.Background())
     principals := []*rbacv3.Principal{}
     
+    logger.Info("Converting principals", 
+        "num_cidrs", len(principal.ClientCIDRs))
+    
     for _, cidr := range principal.ClientCIDRs {
+        logger.Info("Processing CIDR",
+            "cidr", cidr.CIDR,
+            "ip", cidr.IP,
+            "mask_len", cidr.MaskLen)
+            
         principals = append(principals, &rbacv3.Principal{
             Identifier: &rbacv3.Principal_DirectRemoteIp{
                 DirectRemoteIp: convertCIDR(cidr),
