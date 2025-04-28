@@ -582,8 +582,8 @@ func findXdsHTTPRouteConfigName(xdsListener *listenerv3.Listener) string {
 }
 
 func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
-	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
-	connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
+    clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
+    connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
 ) error {
 	if irRoute == nil {
 		return errors.New("tcp listener is nil")
@@ -664,31 +664,31 @@ for _, nf := range networkFilters {
         return err
     }
 
-    filterChain := &listenerv3.FilterChain{
+  	filterChain := &listenerv3.FilterChain{
         Filters: filters,
         Name:    irRoute.Name,
     }
 
 	if isTLSPassthrough {
-		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
-			return err
-		}
-	}
+        if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
+            return err
+        }
+    }
 
 	if isTLSTerminate {
-		var snis []string
-		if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
-			snis = cfg.SNIs
-		}
-		if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
-			return err
-		}
-		tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
-		if err != nil {
-			return err
-		}
-		filterChain.TransportSocket = tSocket
-	}
+        var snis []string
+        if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
+            snis = cfg.SNIs
+        }
+        if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
+            return err
+        }
+        tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
+        if err != nil {
+            return err
+        }
+        filterChain.TransportSocket = tSocket
+    }
 
 	xdsListener.FilterChains = append(xdsListener.FilterChains, filterChain)
 
@@ -1142,7 +1142,7 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	return clientCertDetails
 }
 
-
+// convertAction converts from the IR authorization action to Envoy's RBAC action
 func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
     if action == egv1a1.AuthorizationActionAllow {
         return rbacv3.RBAC_ALLOW
@@ -1150,19 +1150,28 @@ func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
     return rbacv3.RBAC_DENY
 }
 
+// convertRules converts IR authorization rules to Envoy RBAC policies
 func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
     policies := make(map[string]*rbacv3.Policy)
     
     for _, rule := range rules {
         policies[rule.Name] = &rbacv3.Policy{
             Principals: convertPrincipals(rule.Principal),
-            // Add other fields as needed
+            // Add a default ANY permission since we want to allow/deny all actions
+            Permissions: []*rbacv3.Permission{
+                {
+                    Rule: &rbacv3.Permission_Any{
+                        Any: true,
+                    },
+                },
+            },
         }
     }
     
     return policies
 }
 
+// convertPrincipals converts IR principals to Envoy RBAC principals
 func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
     principals := []*rbacv3.Principal{}
     
@@ -1177,6 +1186,8 @@ func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
     return principals
 }
 
+
+// convertCIDR converts IR CIDR match to Envoy CIDR range
 func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
     return &corev3.CidrRange{
         AddressPrefix: cidr.CIDR,
