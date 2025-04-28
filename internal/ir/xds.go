@@ -1817,7 +1817,7 @@ type TCPListener struct {
 	// Routes associated with TCP traffic to the listener.
 	Routes []*TCPRoute `json:"routes,omitempty" yaml:"routes,omitempty"`
 
-	NetworkFilters []*NetworkFilter `json:"NetworkFilters,omitempty" yaml:"NetworkFilters,omitempty"`
+	NetworkFilters []*NetworkFilter `json:"networkFilters,omitempty" yaml:"networkFilters,omitempty"`
 }
 
 // TCPRoute holds the route information associated with the TCP Route
@@ -2331,10 +2331,10 @@ type NetworkFilter struct {
 }
 
 type RBACConfig struct {
-    Rules         []*AuthorizationRule
-    DefaultAction egv1a1.AuthorizationAction  // Use the type from egv1a1 package
-    StatPrefix    string
-	SourceIPEnforcement bool
+    Rules              []*AuthorizationRule       `json:"rules,omitempty" yaml:"rules,omitempty"`
+    DefaultAction      egv1a1.AuthorizationAction `json:"defaultAction,omitempty" yaml:"defaultAction,omitempty"`
+    StatPrefix         string                     `json:"statPrefix,omitempty" yaml:"statPrefix,omitempty"`
+    SourceIPEnforcement bool                      `json:"sourceIPEnforcement,omitempty" yaml:"sourceIPEnforcement,omitempty"`
 }
 
 type AuthorizationAction string
