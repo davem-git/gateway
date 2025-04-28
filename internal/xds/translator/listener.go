@@ -609,8 +609,8 @@ for _, nf := range networkFilters {
 			StatPrefix: "tcp_rbac_",
 			Rules: &rbacv3.RBAC{
 				// When we want to ALLOW only specific CIDRs, set Action to ALLOW (only allow what matches)
-				Action: convertAction(nf.Config.DefaultAction), 
-				Policies: convertRules(nf.Config.Rules),
+				Action: rbacv3.RBAC_ALLOW,  // Set to ALLOW regardless of the defaultAction
+        		Policies: convertRules(nf.Config.Rules),
     },
 }
 		logger.Info("Created RBAC config",
