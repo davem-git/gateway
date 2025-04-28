@@ -627,13 +627,13 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 for _, nf := range networkFilters {
     if nf.Name == "envoy.filters.network.rbac" {
         // Convert IR RBAC config to Envoy RBAC config
-        rbacConfig := &rbacconfig.RBAC{
-    	StatPrefix: nf.Config.StatPrefix,
-    	Rules: &rbacv3.RBAC{
-        Action: convertAction(nf.Config.DefaultAction),
-        Policies: convertRules(nf.Config.Rules),
-   	},
-   	EnforcementType: 0, // Use 0 for ENFORCED since it's the first enum value
+       	rbacConfig := &rbacconfig.RBAC{
+			StatPrefix: "tcp_rbac_",
+			Rules: &rbacv3.RBAC{
+				Action: convertAction(nf.Config.DefaultAction),
+				Policies: convertRules(nf.Config.Rules),
+			},
+			EnforcementType: 0,  // ENFORCED
 }
         
         if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
@@ -1144,12 +1144,16 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 
 // convertAction converts from the IR authorization action to Envoy's RBAC action
 func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
-    if action == egv1a1.AuthorizationActionAllow {
+    switch action {
+    case egv1a1.AuthorizationActionAllow:
         return rbacv3.RBAC_ALLOW
+    case egv1a1.AuthorizationActionDeny:
+        return rbacv3.RBAC_DENY
+    default:
+        // Default to DENY for safety
+        return rbacv3.RBAC_DENY
     }
-    return rbacv3.RBAC_DENY
 }
-
 // convertRules converts IR authorization rules to Envoy RBAC policies
 func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
     policies := make(map[string]*rbacv3.Policy)
