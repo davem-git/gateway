@@ -93,7 +93,7 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 	// 2. Then translate Policies targeting Listeners
 	// 3. Finally, the policies targeting Gateways
 
-	/// Process the policies targeting xRoutes
+	// Process the policies targeting xRoutes
 	for _, currPolicy := range securityPolicies {
 		policyName := utils.NamespacedName(currPolicy)
 		targetRefs := getPolicyTargetRefs(currPolicy.Spec.PolicyTargetReferences, routes)
@@ -1678,51 +1678,6 @@ func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy, protocol 
 
 	return irAuth, nil
 }
-
-// func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy) (*ir.Authorization, error) {
-// 	var (
-// 		authorization = policy.Spec.Authorization
-// 		irAuth        = &ir.Authorization{}
-// 		// The default action is Deny if not specified
-// 		defaultAction = egv1a1.AuthorizationActionDeny
-// 	)
-
-// 	if authorization.DefaultAction != nil {
-// 		defaultAction = *authorization.DefaultAction
-// 	}
-// 	irAuth.DefaultAction = defaultAction
-
-// 	for i, rule := range authorization.Rules {
-// 		irPrincipal := ir.Principal{}
-
-// 		for _, cidr := range rule.Principal.ClientCIDRs {
-// 			cidrMatch, err := parseCIDR(string(cidr))
-// 			if err != nil {
-// 				return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
-// 			}
-
-// 			irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
-// 		}
-
-// 		irPrincipal.JWT = rule.Principal.JWT
-// 		irPrincipal.Headers = rule.Principal.Headers
-
-// 		var name string
-// 		if rule.Name != nil && *rule.Name != "" {
-// 			name = *rule.Name
-// 		} else {
-// 			name = defaultAuthorizationRuleName(policy, i)
-// 		}
-// 		irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
-// 			Name:      name,
-// 			Action:    rule.Action,
-// 			Operation: rule.Operation,
-// 			Principal: irPrincipal,
-// 		})
-// 	}
-
-// 	return irAuth, nil
-// }
 
 func defaultAuthorizationRuleName(policy *egv1a1.SecurityPolicy, index int) string {
 	return fmt.Sprintf(
