@@ -793,17 +793,17 @@ func (t *Translator) processTCPListenerXdsTranslation(
 				}
 			}
 			if err := addXdsTCPFilterChain(
-				xdsListener, 
-				route, 
-				route.Destination.Name, 
-				accesslog, 
-				tcpListener.Timeout, 
+				xdsListener,
+				route,
+				route.Destination.Name,
+				accesslog,
+				tcpListener.Timeout,
 				tcpListener.Connection,
-				tcpListener.NetworkFilters,  // Add this parameter
+				tcpListener.NetworkFilters, // Add this parameter
 			); err != nil {
-        errs = errors.Join(errs, err)
-    }
-}
+				errs = errors.Join(errs, err)
+			}
+		}
 
 		// If there are no routes, add a route without a destination to the listener to create a filter chain
 		// This is needed because Envoy requires a filter chain to be present in the listener, otherwise it will reject the listener and report a warning
@@ -825,18 +825,18 @@ func (t *Translator) processTCPListenerXdsTranslation(
 					Name: emptyClusterName,
 				},
 			}
-		if err := addXdsTCPFilterChain(
-        xdsListener, 
-        emptyRoute, 
-        emptyClusterName, 
-        accesslog, 
-        tcpListener.Timeout, 
-        tcpListener.Connection,
-        tcpListener.NetworkFilters,  // Add this parameter
-    ); err != nil {
-        errs = errors.Join(errs, err)
-    }
-}
+			if err := addXdsTCPFilterChain(
+				xdsListener,
+				emptyRoute,
+				emptyClusterName,
+				accesslog,
+				tcpListener.Timeout,
+				tcpListener.Connection,
+				tcpListener.NetworkFilters, // Add this parameter
+			); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
 	}
 	return errs
 }
