@@ -7,7 +7,7 @@ global:
       image: ${GatewayImage}
       # Specify image pull policy if default behavior isn't desired.
       # Default behavior: latest images will be Always else IfNotPresent.
-      pullPolicy: ${GatewayImagePullPolicy}
+      pullPolicy: Always
       # List of secrets in the same namespace of the component that can be used to pull images from private repositories.
       pullSecrets:
         - name: regcred
@@ -28,7 +28,7 @@ deployment:
     image:
       repository: ""
       tag: ""
-    imagePullPolicy: ""
+    magePullPolicy: Always
     imagePullSecrets: []
     resources:
       limits:
@@ -110,14 +110,15 @@ certgen:
     affinity: {}
     tolerations: []
     nodeSelector: {}
-    ttlSecondsAfterFinished: 30
+    storageClass: "default-ssd-v1"
+    ttlSecondsAfterFinished: 600
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop:
         - ALL
       privileged: false
-      readOnlyRootFilesystem: true
+      readOnlyRootFilesystem: false
       runAsNonRoot: true
       runAsGroup: 65534
       runAsUser: 65534
