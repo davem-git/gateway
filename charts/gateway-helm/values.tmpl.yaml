@@ -110,7 +110,6 @@ certgen:
     affinity: {}
     tolerations: []
     nodeSelector: {}
-    storageClass: "default-ssd-v1"
     ttlSecondsAfterFinished: 600
     securityContext:
       allowPrivilegeEscalation: false
@@ -118,7 +117,7 @@ certgen:
         drop:
         - ALL
       privileged: false
-      readOnlyRootFilesystem: false
+      readOnlyRootFilesystem: true
       runAsNonRoot: true
       runAsGroup: 65534
       runAsUser: 65534
