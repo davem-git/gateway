@@ -1089,18 +1089,6 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	return clientCertDetails
 }
 
-// // convertAction converts from the IR authorization action to Envoy's RBAC action
-// func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
-//     switch action {
-//     case egv1a1.AuthorizationActionAllow:
-//         return rbacv3.RBAC_ALLOW  // Keep actions as-is, don't invert
-//     case egv1a1.AuthorizationActionDeny:
-//         return rbacv3.RBAC_DENY
-//     default:
-//         return rbacv3.RBAC_DENY  // Default to DENY for safety
-//     }
-// }
-
 // convertRules converts IR authorization rules to Envoy RBAC policies
 func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
 	policies := make(map[string]*rbacv3.Policy)
