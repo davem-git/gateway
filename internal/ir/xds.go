@@ -2325,11 +2325,13 @@ type TCPKeepalive struct {
 	Interval *uint32 `json:"interval,omitempty" yaml:"interval,omitempty"`
 }
 
+// 
+// +k8s:deepcopy-gen=true
 type NetworkFilter struct {
     Name   string      `json:"name" yaml:"name"`
     Config *RBACConfig `json:"config,omitempty" yaml:"config,omitempty"`
 }
-
+// +k8s:deepcopy-gen=true
 type RBACConfig struct {
     Rules              []*AuthorizationRule       `json:"rules,omitempty" yaml:"rules,omitempty"`
     DefaultAction      egv1a1.AuthorizationAction `json:"defaultAction,omitempty" yaml:"defaultAction,omitempty"`
@@ -2337,6 +2339,7 @@ type RBACConfig struct {
     SourceIPEnforcement bool                      `json:"sourceIPEnforcement,omitempty" yaml:"sourceIPEnforcement,omitempty"`
 }
 
+// +k8s:deepcopy-gen=true
 type AuthorizationAction string
 
 const (
