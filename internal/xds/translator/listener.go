@@ -15,10 +15,6 @@ import (
 
 	xdscore "github.com/cncf/xds/go/xds/core/v3"
 	matcher "github.com/cncf/xds/go/xds/type/matcher/v3"
-	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
-	"github.com/envoyproxy/gateway/internal/ir"
-	"github.com/envoyproxy/gateway/internal/utils/proto"
-	xdsfilters "github.com/envoyproxy/gateway/internal/xds/filters"
 	mutation_rulesv3 "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
@@ -44,6 +40,11 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/ir"
+	"github.com/envoyproxy/gateway/internal/utils/proto"
+	xdsfilters "github.com/envoyproxy/gateway/internal/xds/filters"
 )
 
 const (
@@ -584,8 +585,8 @@ func findXdsHTTPRouteConfigName(xdsListener *listenerv3.Listener) string {
 }
 
 func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
-    clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
-    connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
+	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
 ) error {
 	if irRoute == nil {
 		return errors.New("tcp listener is nil")
@@ -625,83 +626,81 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 
 	var filters []*listenerv3.Filter
 
-// With this correct code:
-for _, nf := range networkFilters {
-    if nf.Name == "envoy.filters.network.rbac" {
-		logger := log.Log.WithName("tcp-rbac")
-        
-        logger.Info("Processing RBAC filter",
-            "filter_name", nf.Name,
-            "default_action", nf.Config.DefaultAction,
-            "num_rules", len(nf.Config.Rules))
-        // Convert IR RBAC config to Envoy RBAC config
-		rbacConfig := &rbacconfig.RBAC{
-			StatPrefix: "tcp_rbac_",
-			Rules: &rbacv3.RBAC{
-				// When we want to ALLOW only specific CIDRs, set Action to ALLOW (only allow what matches)
-				Action: rbacv3.RBAC_ALLOW,  // Set to ALLOW regardless of the defaultAction
-        		Policies: convertRules(nf.Config.Rules),
-    },
-}
-		logger.Info("Created RBAC config",
-					"action", rbacConfig.Rules.Action.String(),
-					"num_policies", len(rbacConfig.Rules.Policies))
-        
-        if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
-            filters = append(filters, f)
-			logger.Info("Added RBAC filter to chain")
-        } else {
-			logger.Error(err, "Failed to create network filter")
-            return err
-        }
-    } else {
-        // Handle other filter types
-        return fmt.Errorf("unsupported network filter type: %s", nf.Name)
-    }
-}
+	// With this correct code:
+	for _, nf := range networkFilters {
+		if nf.Name == "envoy.filters.network.rbac" {
+			logger := log.Log.WithName("tcp-rbac")
 
+			logger.Info("Processing RBAC filter",
+				"filter_name", nf.Name,
+				"default_action", nf.Config.DefaultAction,
+				"num_rules", len(nf.Config.Rules))
+			// Convert IR RBAC config to Envoy RBAC config
+			rbacConfig := &rbacconfig.RBAC{
+				StatPrefix: "tcp_rbac_",
+				Rules: &rbacv3.RBAC{
+					// When we want to ALLOW only specific CIDRs, set Action to ALLOW (only allow what matches)
+					Action:   rbacv3.RBAC_ALLOW, // Set to ALLOW regardless of the defaultAction
+					Policies: convertRules(nf.Config.Rules),
+				},
+			}
+			logger.Info("Created RBAC config",
+				"action", rbacConfig.Rules.Action.String(),
+				"num_policies", len(rbacConfig.Rules.Policies))
 
-    if connection != nil && connection.ConnectionLimit != nil {
-        cl := buildConnectionLimitFilter(statPrefix, connection)
-        if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-            filters = append(filters, clf)
-        } else {
-            return err
-        }
-    }
+			if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
+				filters = append(filters, f)
+				logger.Info("Added RBAC filter to chain")
+			} else {
+				logger.Error(err, "Failed to create network filter")
+				return err
+			}
+		} else {
+			// Handle other filter types
+			return fmt.Errorf("unsupported network filter type: %s", nf.Name)
+		}
+	}
 
+	if connection != nil && connection.ConnectionLimit != nil {
+		cl := buildConnectionLimitFilter(statPrefix, connection)
+		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
+			filters = append(filters, clf)
+		} else {
+			return err
+		}
+	}
 
 	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
-        filters = append(filters, mgrf)
-    } else {
-        return err
-    }
+		filters = append(filters, mgrf)
+	} else {
+		return err
+	}
 
-  	filterChain := &listenerv3.FilterChain{
-        Filters: filters,
-        Name:    irRoute.Name,
-    }
+	filterChain := &listenerv3.FilterChain{
+		Filters: filters,
+		Name:    irRoute.Name,
+	}
 
 	if isTLSPassthrough {
-        if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
-            return err
-        }
-    }
+		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
+			return err
+		}
+	}
 
 	if isTLSTerminate {
-        var snis []string
-        if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
-            snis = cfg.SNIs
-        }
-        if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
-            return err
-        }
-        tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
-        if err != nil {
-            return err
-        }
-        filterChain.TransportSocket = tSocket
-    }
+		var snis []string
+		if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
+			snis = cfg.SNIs
+		}
+		if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
+			return err
+		}
+		tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
+		if err != nil {
+			return err
+		}
+		filterChain.TransportSocket = tSocket
+	}
 
 	xdsListener.FilterChains = append(xdsListener.FilterChains, filterChain)
 
@@ -1155,96 +1154,95 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	return clientCertDetails
 }
 
-// convertAction converts from the IR authorization action to Envoy's RBAC action
-func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
-    switch action {
-    case egv1a1.AuthorizationActionAllow:
-        return rbacv3.RBAC_ALLOW  // Keep actions as-is, don't invert
-    case egv1a1.AuthorizationActionDeny:
-        return rbacv3.RBAC_DENY
-    default:
-        return rbacv3.RBAC_DENY  // Default to DENY for safety
-    }
-}
+// // convertAction converts from the IR authorization action to Envoy's RBAC action
+// func convertAction(action egv1a1.AuthorizationAction) rbacv3.RBAC_Action {
+//     switch action {
+//     case egv1a1.AuthorizationActionAllow:
+//         return rbacv3.RBAC_ALLOW  // Keep actions as-is, don't invert
+//     case egv1a1.AuthorizationActionDeny:
+//         return rbacv3.RBAC_DENY
+//     default:
+//         return rbacv3.RBAC_DENY  // Default to DENY for safety
+//     }
+// }
 
 // convertRules converts IR authorization rules to Envoy RBAC policies
 func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
-    policies := make(map[string]*rbacv3.Policy)
-    
-    for _, rule := range rules {
-        // Only add ALLOW rules as policies
-        if rule.Action == egv1a1.AuthorizationActionAllow {
-            policies[rule.Name] = &rbacv3.Policy{
-                Principals: convertPrincipals(rule.Principal),
-                Permissions: []*rbacv3.Permission{{
-                    Rule: &rbacv3.Permission_Any{Any: true},
-                }},
-            }
-        }
-    }
-    
-    return policies
+	policies := make(map[string]*rbacv3.Policy)
+
+	for _, rule := range rules {
+		// Only add ALLOW rules as policies
+		if rule.Action == egv1a1.AuthorizationActionAllow {
+			policies[rule.Name] = &rbacv3.Policy{
+				Principals: convertPrincipals(rule.Principal),
+				Permissions: []*rbacv3.Permission{{
+					Rule: &rbacv3.Permission_Any{Any: true},
+				}},
+			}
+		}
+	}
+
+	return policies
 }
 
 // convertPrincipals converts IR principals to Envoy RBAC principals
 func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
-    logger := log.FromContext(context.Background())
-    principals := []*rbacv3.Principal{}
-    
-    logger.Info("Converting principals", 
-        "num_cidrs", len(principal.ClientCIDRs))
-    
-    for _, cidr := range principal.ClientCIDRs {
-        logger.Info("Processing CIDR",
-            "cidr", cidr.CIDR,
-            "ip", cidr.IP,
-            "mask_len", cidr.MaskLen)
-            
-        principals = append(principals, &rbacv3.Principal{
-            Identifier: &rbacv3.Principal_DirectRemoteIp{
-                DirectRemoteIp: convertCIDR(cidr),
-            },
-        })
-    }
-    
-    return principals
-}
+	logger := log.FromContext(context.Background())
+	principals := []*rbacv3.Principal{}
 
+	logger.Info("Converting principals",
+		"num_cidrs", len(principal.ClientCIDRs))
+
+	for _, cidr := range principal.ClientCIDRs {
+		logger.Info("Processing CIDR",
+			"cidr", cidr.CIDR,
+			"ip", cidr.IP,
+			"mask_len", cidr.MaskLen)
+
+		principals = append(principals, &rbacv3.Principal{
+			Identifier: &rbacv3.Principal_DirectRemoteIp{
+				DirectRemoteIp: convertCIDR(cidr),
+			},
+		})
+	}
+
+	return principals
+}
 
 // convertCIDR converts IR CIDR match to Envoy CIDR range
 func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
-    logger := log.Log.WithName("cidr-converter")
-    
-    // Use the full CIDR notation instead of separate fields
-    if cidr.CIDR != "" {
-        ip, ipNet, err := net.ParseCIDR(cidr.CIDR)
-        if err != nil {
-            logger.Error(err, "Failed to parse CIDR", "cidr", cidr.CIDR)
-            return &corev3.CidrRange{
-                AddressPrefix: cidr.IP,
-                PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
-            }
-        }
-        
-        ones, _ := ipNet.Mask.Size()
-        logger.Info("Parsed CIDR successfully", 
-            "ip", ip.String(), 
-            "prefix_len", ones,
-            "cidr", cidr.CIDR)
-            
-        return &corev3.CidrRange{
-            AddressPrefix: ip.String(),
-            PrefixLen:     wrapperspb.UInt32(uint32(ones)),
-        }
-    }
-    
-    // Fall back to using the separate IP and mask length fields
-    logger.Info("Using separate IP and mask fields", 
-        "ip", cidr.IP, 
-        "mask_len", cidr.MaskLen)
-        
-    return &corev3.CidrRange{
-        AddressPrefix: cidr.IP,
-        PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
-    }
+	logger := log.Log.WithName("cidr-converter")
+
+	// Use the full CIDR notation instead of separate fields
+	if cidr.CIDR != "" {
+		ip, ipNet, err := net.ParseCIDR(cidr.CIDR)
+		if err != nil {
+			logger.Error(err, "Failed to parse CIDR", "cidr", cidr.CIDR)
+			return &corev3.CidrRange{
+				AddressPrefix: cidr.IP,
+				PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
+			}
+		}
+
+		ones, _ := ipNet.Mask.Size()
+		logger.Info("Parsed CIDR successfully",
+			"ip", ip.String(),
+			"prefix_len", ones,
+			"cidr", cidr.CIDR)
+
+		return &corev3.CidrRange{
+			AddressPrefix: ip.String(),
+			PrefixLen:     wrapperspb.UInt32(uint32(ones)),
+		}
+	}
+
+	// Fall back to using the separate IP and mask length fields
+	logger.Info("Using separate IP and mask fields",
+		"ip", cidr.IP,
+		"mask_len", cidr.MaskLen)
+
+	return &corev3.CidrRange{
+		AddressPrefix: cidr.IP,
+		PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
+	}
 }

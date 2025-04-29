@@ -73,8 +73,6 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 			Name:      route.GetName(),
 			Namespace: route.GetNamespace(),
 			Protocol:  getRouteProtocol(route),
-			
-
 		}
 		routeMap[key] = &policyRouteTargetContext{RouteContext: route}
 	}
@@ -133,10 +131,10 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 								policy.Generation,
 								status.Error2ConditionMsg(err))
 							continue
-						}					
+						}
 					}
-        	default: // HTTP routes}
-				targetedRoute, resolveErr = resolveSecurityPolicyRouteTargetRef(policy, currTarget, routeMap)
+				default: // HTTP routes}
+					targetedRoute, resolveErr = resolveSecurityPolicyRouteTargetRef(policy, currTarget, routeMap)
 				}
 				// Skip if the route is not found
 				// It's not necessarily an error because the SecurityPolicy may be
@@ -339,13 +337,10 @@ func getRouteProtocol(route RouteContext) ir.AppProtocol {
 		return ir.HTTP // default to HTTP for nil routes
 	}
 
-	switch r := route.(type) {
-	case *TCPRouteContext:
-		if r != nil {
-			return ir.TCP
-		}
+	if r, ok := route.(*TCPRouteContext); ok && r != nil {
+		return ir.TCP
 	}
-	return ir.HTTP // default to HTTP for all other route types
+	return ir.HTTP
 }
 
 // validateSecurityPolicy validates the SecurityPolicy.
@@ -364,12 +359,12 @@ func validateSecurityPolicy(p *egv1a1.SecurityPolicy) error {
 // Only authorization is allowed for TCP routes.
 func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 	// For TCP routes, only authorization is supported
-	if p.Spec.CORS != nil || 
-	   p.Spec.JWT != nil || 
-	   p.Spec.OIDC != nil || 
-	   p.Spec.APIKeyAuth != nil || 
-	   p.Spec.BasicAuth != nil || 
-	   p.Spec.ExtAuth != nil {
+	if p.Spec.CORS != nil ||
+		p.Spec.JWT != nil ||
+		p.Spec.OIDC != nil ||
+		p.Spec.APIKeyAuth != nil ||
+		p.Spec.BasicAuth != nil ||
+		p.Spec.ExtAuth != nil {
 		return fmt.Errorf("only authorization is supported for TCP routes")
 	}
 
@@ -500,36 +495,36 @@ func resolveSecurityPolicyRouteTargetRef(
 }
 
 func resolveSecurityPolicyTCPRouteTargetRef(
-    policy *egv1a1.SecurityPolicy,
-    target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName,
-    routes map[policyTargetRouteKey]*policyRouteTargetContext,
+	policy *egv1a1.SecurityPolicy,
+	target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName,
+	routes map[policyTargetRouteKey]*policyRouteTargetContext,
 ) (RouteContext, *status.PolicyResolveError) {
-    key := policyTargetRouteKey{
-        Kind:      string(target.Kind),
-        Name:      string(target.Name),
-        Namespace: policy.Namespace,
-        Protocol:  ir.TCP,
-    }
-    route, ok := routes[key]
-    if !ok {
-        return nil, nil
-    }
+	key := policyTargetRouteKey{
+		Kind:      string(target.Kind),
+		Name:      string(target.Name),
+		Namespace: policy.Namespace,
+		Protocol:  ir.TCP,
+	}
+	route, ok := routes[key]
+	if !ok {
+		return nil, nil
+	}
 
-    if route.attached {
-        message := fmt.Sprintf(
-            "Unable to target TCPRoute %s, another SecurityPolicy has already attached to it",
-            string(target.Name),
-        )
-        return route.RouteContext, &status.PolicyResolveError{
-            Reason:  gwapiv1a2.PolicyReasonConflicted,
-            Message: message,
-        }
-    }
+	if route.attached {
+		message := fmt.Sprintf(
+			"Unable to target TCPRoute %s, another SecurityPolicy has already attached to it",
+			string(target.Name),
+		)
+		return route.RouteContext, &status.PolicyResolveError{
+			Reason:  gwapiv1a2.PolicyReasonConflicted,
+			Message: message,
+		}
+	}
 
-    route.attached = true
-    routes[key] = route
+	route.attached = true
+	routes[key] = route
 
-    return route.RouteContext, nil
+	return route.RouteContext, nil
 }
 
 func (t *Translator) translateSecurityPolicyForRoute(
@@ -646,80 +641,80 @@ func (t *Translator) translateSecurityPolicyForRoute(
 }
 
 func (t *Translator) translateSecurityPolicyForTCPRoute(
-    policy *egv1a1.SecurityPolicy, route RouteContext,
-    xdsIR resource.XdsIRMap,
+	policy *egv1a1.SecurityPolicy, route RouteContext,
+	xdsIR resource.XdsIRMap,
 ) error {
-    var (
-        authorization *ir.Authorization
-        err, errs    error
-    )
+	var (
+		authorization *ir.Authorization
+		err, errs     error
+	)
 
-    if policy.Spec.Authorization != nil {
-        if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
-            errs = errors.Join(errs, err)
-            return errs
-        }
-    }
+	if policy.Spec.Authorization != nil {
+		if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
+			errs = errors.Join(errs, err)
+			return errs
+		}
+	}
 
-    prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
-    parentRefs := GetParentReferences(route)
-    for _, p := range parentRefs {
-        parentRefCtx := GetRouteParentContext(route, p)
-        gtwCtx := parentRefCtx.GetGateway()
-        if gtwCtx == nil {
-            continue
-        }
+	prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
+	parentRefs := GetParentReferences(route)
+	for _, p := range parentRefs {
+		parentRefCtx := GetRouteParentContext(route, p)
+		gtwCtx := parentRefCtx.GetGateway()
+		if gtwCtx == nil {
+			continue
+		}
 
-        irKey := t.getIRKey(gtwCtx.Gateway)
-        for _, listener := range parentRefCtx.listeners {
-            irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
-            if irListener == nil {
-                continue
-            }
+		irKey := t.getIRKey(gtwCtx.Gateway)
+		for _, listener := range parentRefCtx.listeners {
+			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
+			if irListener == nil {
+				continue
+			}
 
-            // Create TCP RBAC filter
-            rbacFilter := &ir.NetworkFilter{
-                Name: "envoy.filters.network.rbac",
-                Config: &ir.RBACConfig{
-                    Rules:              authorization.Rules,
-                    DefaultAction:      authorization.DefaultAction,
-                    StatPrefix:         "tcp_rbac_",
-                    SourceIPEnforcement: true,
-                },
-            }
+			// Create TCP RBAC filter
+			rbacFilter := &ir.NetworkFilter{
+				Name: "envoy.filters.network.rbac",
+				Config: &ir.RBACConfig{
+					Rules:               authorization.Rules,
+					DefaultAction:       authorization.DefaultAction,
+					StatPrefix:          "tcp_rbac_",
+					SourceIPEnforcement: true,
+				},
+			}
 
-            // Create a new filter chain
-            var filters []*ir.NetworkFilter
-            
-            // Add RBAC filter first
-            filters = append(filters, rbacFilter)
-            
-            // Add existing filters second
-            for _, existingFilter := range irListener.NetworkFilters {
-                if existingFilter.Name == "envoy.filters.network.tcp_proxy" {
-                    filters = append(filters, existingFilter)
-                }
-            }
-            
-            // Replace the existing filter chain
-            irListener.NetworkFilters = filters
+			// Create a new filter chain
+			var filters []*ir.NetworkFilter
+
+			// Add RBAC filter first
+			filters = append(filters, rbacFilter)
+
+			// Add existing filters second
+			for _, existingFilter := range irListener.NetworkFilters {
+				if existingFilter.Name == "envoy.filters.network.tcp_proxy" {
+					filters = append(filters, existingFilter)
+				}
+			}
+
+			// Replace the existing filter chain
+			irListener.NetworkFilters = filters
 			fmt.Printf("Updated network filters: %+v\n", irListener.NetworkFilters)
 
-            // Update route security
-            for _, r := range irListener.Routes {
-                if r.Name == prefix {
-                    r.Security = &ir.SecurityFeatures{
-                        Authorization: authorization,
-                    }
-                }
-            }
+			// Update route security
+			for _, r := range irListener.Routes {
+				if r.Name == prefix {
+					r.Security = &ir.SecurityFeatures{
+						Authorization: authorization,
+					}
+				}
+			}
 			for _, l := range xdsIR[irKey].TCP {
-    		fmt.Printf("Final TCP Listener %s filters: %+v\n", l.Name, l.NetworkFilters)
-			}		
-        }
-    }
-    
-    return errs
+				fmt.Printf("Final TCP Listener %s filters: %+v\n", l.Name, l.NetworkFilters)
+			}
+		}
+	}
+
+	return errs
 }
 
 // func (t *Translator) translateSecurityPolicyForTCPRoute(
@@ -746,9 +741,9 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 
 //     parentRefs := GetParentReferences(route)
 //     for _, p := range parentRefs {
-//         fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
+//         fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n",
 //             p.Kind, p.Name, p.SectionName)
-        
+
 //         parentRefCtx := GetRouteParentContext(route, p)
 //         gtwCtx := parentRefCtx.GetGateway()
 //         if gtwCtx == nil {
@@ -798,13 +793,13 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 //             }
 //         }
 //     }
-    
+
 //     if errs != nil {
 //         fmt.Printf("Completed with errors: %v\n", errs)
 //     } else {
 //         fmt.Printf("Completed successfully\n")
 //     }
-    
+
 //     return errs
 // }
 // func (t *Translator) translateSecurityPolicyForTCPRoute(
@@ -821,7 +816,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 //     if policy.Spec.Authorization != nil {
 // 		if authorization, err = t.buildAuthorization(policy); err != nil {
 // 			errs = errors.Join(errs, err)
-			
+
 // 		}
 // 		fmt.Printf("  Built authorization with rules: %+v\n", authorization)
 // 	}
@@ -832,8 +827,8 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 
 //     parentRefs := GetParentReferences(route)
 //     for _, p := range parentRefs {
-// 		fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n", 
-//             p.Kind, 
+// 		fmt.Printf("  Processing parent ref: Kind=%v, Name=%v, SectionName=%v\n",
+//             p.Kind,
 //             p.Name,
 //             p.SectionName)
 //         parentRefCtx := GetRouteParentContext(route, p)
@@ -1789,53 +1784,53 @@ func backendRefAuthority(resources *resource.Resources, backendRef *gwapiv1.Back
 }
 
 func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy, protocol ...ir.AppProtocol) (*ir.Authorization, error) {
-    var (
-        authorization = policy.Spec.Authorization
-        irAuth       = &ir.Authorization{}
-        defaultAction = egv1a1.AuthorizationActionDeny
-    )
+	var (
+		authorization = policy.Spec.Authorization
+		irAuth        = &ir.Authorization{}
+		defaultAction = egv1a1.AuthorizationActionDeny
+	)
 
-    if authorization.DefaultAction != nil {
-        defaultAction = *authorization.DefaultAction
-    }
-    irAuth.DefaultAction = defaultAction
+	if authorization.DefaultAction != nil {
+		defaultAction = *authorization.DefaultAction
+	}
+	irAuth.DefaultAction = defaultAction
 
-    for i, rule := range authorization.Rules {
-        // Set UseDownstreamSourceIP true by default for TCP
-        irPrincipal := ir.Principal{
-            UseDownstreamSourceIP: len(protocol) > 0 && protocol[0] == ir.TCP,
-        }
+	for i, rule := range authorization.Rules {
+		// Set UseDownstreamSourceIP true by default for TCP
+		irPrincipal := ir.Principal{
+			UseDownstreamSourceIP: len(protocol) > 0 && protocol[0] == ir.TCP,
+		}
 
-        for _, cidr := range rule.Principal.ClientCIDRs {
-            cidrMatch, err := parseCIDR(string(cidr))
-            if err != nil {
-                return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
-            }
-            irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
-        }
+		for _, cidr := range rule.Principal.ClientCIDRs {
+			cidrMatch, err := parseCIDR(string(cidr))
+			if err != nil {
+				return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
+			}
+			irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
+		}
 
-        // Only add JWT and Headers for HTTP
-        if len(protocol) == 0 || protocol[0] == ir.HTTP {
-            irPrincipal.JWT = rule.Principal.JWT
-            irPrincipal.Headers = rule.Principal.Headers
-        }
+		// Only add JWT and Headers for HTTP
+		if len(protocol) == 0 || protocol[0] == ir.HTTP {
+			irPrincipal.JWT = rule.Principal.JWT
+			irPrincipal.Headers = rule.Principal.Headers
+		}
 
-        var name string
-        if rule.Name != nil && *rule.Name != "" {
-            name = *rule.Name
-        } else {
-            name = defaultAuthorizationRuleName(policy, i)
-        }
+		var name string
+		if rule.Name != nil && *rule.Name != "" {
+			name = *rule.Name
+		} else {
+			name = defaultAuthorizationRuleName(policy, i)
+		}
 
-        irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
-            Name:      name,
-            Action:    rule.Action,
-            Operation: rule.Operation,
-            Principal: irPrincipal,
-        })
-    }
+		irAuth.Rules = append(irAuth.Rules, &ir.AuthorizationRule{
+			Name:      name,
+			Action:    rule.Action,
+			Operation: rule.Operation,
+			Principal: irPrincipal,
+		})
+	}
 
-    return irAuth, nil
+	return irAuth, nil
 }
 
 // func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy) (*ir.Authorization, error) {

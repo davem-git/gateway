@@ -18,9 +18,6 @@ import (
 	v33 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (

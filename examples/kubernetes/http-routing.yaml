@@ -5,7 +5,6 @@ kind: GatewayClass
 apiVersion: gateway.networking.k8s.io/v1
 metadata:
   name: example-gateway-class
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -15,7 +14,6 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: example-gateway
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -29,7 +27,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: example-svc
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -44,7 +41,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: example-backend
-  namespace: httprouting
   labels:
     app: example-backend
     example: http-routing
@@ -78,7 +74,6 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: example-route
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -95,7 +90,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: foo-svc
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -110,7 +104,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: foo-backend
-  namespace: httprouting
   labels:
     app: foo-backend
     example: http-routing
@@ -144,7 +137,6 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: foo-route
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -165,7 +157,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: bar-svc
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -180,7 +171,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bar-backend
-  namespace: httprouting
   labels:
     app: bar-backend
     example: http-routing
@@ -214,7 +204,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: bar-canary-svc
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -229,7 +218,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bar-canary-backend
-  namespace: httprouting
   labels:
     app: bar-canary-backend
     example: http-routing
@@ -263,7 +251,6 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: bar-route
-  namespace: httprouting
   labels:
     example: http-routing
 spec:
@@ -283,41 +270,3 @@ spec:
     - backendRefs:
         - name: bar-svc
           port: 8080
-
-
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: SecurityPolicy
-metadata:
-  name:   bar-route
-  namespace: httprouting
-spec:
-  targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name:  bar-route
-  authorization:
-    defaultAction: Deny
-    rules:
-    - action: Allow
-      principal:
-        clientCIDRs:
-        - 192.30.252.0/22
-
-
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: SecurityPolicy
-metadata:
-  name:   gateway
-  namespace: envoy-gateway-system
-spec:
-  targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: example-gateway
-  authorization:
-    defaultAction: Deny
-    rules:
-    - action: Allow
-      principal:
-        clientCIDRs:
-        - 192.30.252.0/22

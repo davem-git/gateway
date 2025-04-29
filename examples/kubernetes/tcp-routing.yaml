@@ -146,11 +146,11 @@ spec:
   - backendRefs:
     - name: bar
       port: 3002
-
+---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name:  tcp-app-2-security-policy
+  name: tcp-app-2-security-policy
 spec:
   targetRefs:
   - group: gateway.networking.k8s.io
@@ -162,5 +162,4 @@ spec:
     - action: Allow
       principal:
         clientCIDRs:
-        - 192.30.252.0/22
-        - 104.55.210.252/32
+        - 192.16.252.0/24
