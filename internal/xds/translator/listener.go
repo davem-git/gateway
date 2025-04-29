@@ -1213,10 +1213,38 @@ func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
 
 // convertCIDR converts IR CIDR match to Envoy CIDR range
 func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
-    // Split the IP from the CIDR format
-    // Use the IP field directly instead of the CIDR field
+    logger := log.Log.WithName("cidr-converter")
+    
+    // Use the full CIDR notation instead of separate fields
+    if cidr.CIDR != "" {
+        ip, ipNet, err := net.ParseCIDR(cidr.CIDR)
+        if err != nil {
+            logger.Error(err, "Failed to parse CIDR", "cidr", cidr.CIDR)
+            return &corev3.CidrRange{
+                AddressPrefix: cidr.IP,
+                PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
+            }
+        }
+        
+        ones, _ := ipNet.Mask.Size()
+        logger.Info("Parsed CIDR successfully", 
+            "ip", ip.String(), 
+            "prefix_len", ones,
+            "cidr", cidr.CIDR)
+            
+        return &corev3.CidrRange{
+            AddressPrefix: ip.String(),
+            PrefixLen:     wrapperspb.UInt32(uint32(ones)),
+        }
+    }
+    
+    // Fall back to using the separate IP and mask length fields
+    logger.Info("Using separate IP and mask fields", 
+        "ip", cidr.IP, 
+        "mask_len", cidr.MaskLen)
+        
     return &corev3.CidrRange{
-        AddressPrefix: cidr.IP,          // Use the plain IP address without subnet mask
+        AddressPrefix: cidr.IP,
         PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
     }
 }
