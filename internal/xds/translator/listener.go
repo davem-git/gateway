@@ -1172,11 +1172,14 @@ func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
     policies := make(map[string]*rbacv3.Policy)
     
     for _, rule := range rules {
-        policies[rule.Name] = &rbacv3.Policy{
-            Principals: convertPrincipals(rule.Principal),
-            Permissions: []*rbacv3.Permission{{
-                Rule: &rbacv3.Permission_Any{Any: true},
-            }},
+        // Only add ALLOW rules as policies
+        if rule.Action == egv1a1.AuthorizationActionAllow {
+            policies[rule.Name] = &rbacv3.Policy{
+                Principals: convertPrincipals(rule.Principal),
+                Permissions: []*rbacv3.Permission{{
+                    Rule: &rbacv3.Permission_Any{Any: true},
+                }},
+            }
         }
     }
     
