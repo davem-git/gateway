@@ -588,4 +588,4 @@ spec:
         value: tol1
       restartPolicy: Never
       serviceAccountName: gateway-helm-certgen
-  ttlSecondsAfterFinished: 600
+  ttlSecondsAfterFinished: 30

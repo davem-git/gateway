@@ -108,7 +108,7 @@ certgen:
     affinity: {}
     tolerations: []
     nodeSelector: {}
-    ttlSecondsAfterFinished: 600
+    ttlSecondsAfterFinished: 30
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:
