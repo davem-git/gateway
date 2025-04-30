@@ -653,10 +653,8 @@ func TestWasmCache(t *testing.T) {
 			},
 			wantCachedModules:   map[moduleKey]*cacheEntry{},
 			wantCachedChecksums: map[string]*checksumEntry{},
-			wantErrorMsgPrefix: `could not fetch Wasm binary: the given image is in invalid format as an OCI image: 2 errors occurred:
-	* could not parse as compat variant: invalid media type application/vnd.oci.image.layer.v1.tar (expect application/vnd.oci.image.layer.v1.tar+gzip)
-	* could not parse as oci variant: number of layers must be 2 but got 1`,
-			wantVisitServer: true,
+			wantErrorMsgPrefix:  `could not fetch Wasm binary: the given image is in invalid format as an OCI image: could not parse as compat variant: invalid media type application/vnd.oci.image.layer.v1.tar (expect application/vnd.oci.image.layer.v1.tar+gzip)`,
+			wantVisitServer:     true,
 		},
 		{
 			name: "cache size limit",
@@ -905,7 +903,7 @@ func TestWasmCachePolicyChangesUsingHTTP(t *testing.T) {
 	wantFilePath2 := generateModulePath(t, tmpDir, url2, fmt.Sprintf("%x.wasm", sha256.Sum256(binary2)))
 	var defaultPullPolicy PullPolicy
 
-	testWasmGet := func(downloadURL string, policy PullPolicy, resourceVersion string, wantFilePath string, wantNumRequest int) {
+	testWasmGet := func(downloadURL string, policy PullPolicy, resourceVersion, wantFilePath string, wantNumRequest int) {
 		t.Helper()
 		gotFilePath, _, err := cache.Get(downloadURL, GetOptions{
 			ResourceName:    "namespace.resource",

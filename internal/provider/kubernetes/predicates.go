@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwapiv1a3 "sigs.k8s.io/gateway-api/apis/v1alpha3"
@@ -178,7 +179,29 @@ func (r *gatewayAPIReconciler) validateSecretForReconcile(obj client.Object) boo
 		}
 	}
 
+	if r.hrfCRDExists {
+		if r.isHTTPRouteFilterReferencingSecret(&nsName) {
+			return true
+		}
+	}
+
 	return false
+}
+
+func (r *gatewayAPIReconciler) isHTTPRouteFilterReferencingSecret(nsName *types.NamespacedName) bool {
+	routeFilterList := &egv1a1.HTTPRouteFilterList{}
+	if err := r.client.List(context.Background(), routeFilterList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(secretHTTPRouteFilterIndex, nsName.String()),
+	}); err != nil {
+		r.log.Error(err, "unable to find associated HTTPRouteFilter")
+		return false
+	}
+
+	if len(routeFilterList.Items) > 0 {
+		return true
+	}
+
+	return true
 }
 
 func (r *gatewayAPIReconciler) isBackendTLSPolicyReferencingSecret(nsName *types.NamespacedName) bool {
@@ -524,7 +547,7 @@ func (r *gatewayAPIReconciler) validateObjectForReconcile(obj client.Object) boo
 	labels := obj.GetLabels()
 
 	// Only objects in the configured namespace should be reconciled.
-	if obj.GetNamespace() == r.namespace {
+	if obj.GetNamespace() == r.namespace || r.gatewayNamespaceMode {
 		// Check if the obj belongs to a Gateway, if so, update the Gateway status.
 		gtw := r.findOwningGateway(ctx, labels)
 		if gtw != nil {
@@ -547,13 +570,20 @@ func (r *gatewayAPIReconciler) validateObjectForReconcile(obj client.Object) boo
 	return false
 }
 
+func envoyObjectNamespace(r *gatewayAPIReconciler, gateway *gwapiv1.Gateway) string {
+	if r.gatewayNamespaceMode {
+		return gateway.Namespace
+	}
+	return r.namespace
+}
+
 // envoyObjectForGateway returns the Envoy Deployment or DaemonSet, returning nil if neither exists.
 func (r *gatewayAPIReconciler) envoyObjectForGateway(ctx context.Context, gateway *gwapiv1.Gateway) (client.Object, error) {
 	// Helper func to list and return the first object from results
 	listResource := func(list client.ObjectList) (client.Object, error) {
 		if err := r.client.List(ctx, list, &client.ListOptions{
 			LabelSelector: labels.SelectorFromSet(gatewayapi.OwnerLabels(gateway, r.mergeGateways.Has(string(gateway.Spec.GatewayClassName)))),
-			Namespace:     r.namespace,
+			Namespace:     envoyObjectNamespace(r, gateway),
 		}); err != nil {
 			if !kerrors.IsNotFound(err) {
 				return nil, err
@@ -587,7 +617,7 @@ func (r *gatewayAPIReconciler) envoyServiceForGateway(ctx context.Context, gatew
 	labelSelector := labels.SelectorFromSet(labels.Set(gatewayapi.OwnerLabels(gateway, r.mergeGateways.Has(string(gateway.Spec.GatewayClassName)))))
 	if err := r.client.List(ctx, &services, &client.ListOptions{
 		LabelSelector: labelSelector,
-		Namespace:     r.namespace,
+		Namespace:     envoyObjectNamespace(r, gateway),
 	}); err != nil {
 		if kerrors.IsNotFound(err) {
 			return nil, nil
@@ -748,6 +778,20 @@ func (r *gatewayAPIReconciler) validateConfigMapForReconcile(obj client.Object) 
 		}
 	}
 
+	if r.spCRDExists {
+		spList := &egv1a1.SecurityPolicyList{}
+		if err := r.client.List(context.Background(), spList, &client.ListOptions{
+			FieldSelector: fields.OneTermEqualSelector(configMapSecurityPolicyIndex, utils.NamespacedName(configMap).String()),
+		}); err != nil {
+			r.log.Error(err, "unable to find associated SecurityPolicy")
+			return false
+		}
+
+		if len(spList.Items) > 0 {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -811,4 +855,17 @@ func (r *gatewayAPIReconciler) validateHTTPRouteFilterForReconcile(obj client.Ob
 
 	nsName := utils.NamespacedName(hrf)
 	return r.isRouteReferencingHTTPRouteFilter(&nsName)
+}
+
+func commonPredicates[T client.Object]() []predicate.TypedPredicate[T] {
+	return []predicate.TypedPredicate[T]{
+		metadataPredicate[T](),
+	}
+}
+
+func metadataPredicate[T client.Object]() predicate.TypedPredicate[T] {
+	return predicate.Or(predicate.TypedGenerationChangedPredicate[T]{},
+		predicate.TypedLabelChangedPredicate[T]{},
+		predicate.TypedAnnotationChangedPredicate[T]{},
+	)
 }

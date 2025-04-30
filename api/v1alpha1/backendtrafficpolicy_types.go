@@ -47,6 +47,14 @@ type BackendTrafficPolicySpec struct {
 	PolicyTargetReferences `json:",inline"`
 	ClusterSettings        `json:",inline"`
 
+	// MergeType determines how this configuration is merged with existing BackendTrafficPolicy
+	// configurations targeting a parent resource. When set, this configuration will be merged
+	// into a parent BackendTrafficPolicy (i.e. the one targeting a Gateway or Listener).
+	// This field cannot be set when targeting a parent resource (Gateway).
+	// If unset, no merging occurs, and only the most specific configuration takes effect.
+	// +optional
+	MergeType *MergeType `json:"mergeType,omitempty"`
+
 	// RateLimit allows the user to limit the number of incoming requests
 	// to a predefined value based on attributes within the traffic flow.
 	// +optional
@@ -77,8 +85,11 @@ type BackendTrafficPolicySpec struct {
 	// HTTPUpgrade defines the configuration for HTTP protocol upgrades.
 	// If not specified, the default upgrade configuration(websocket) will be used.
 	//
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	//
 	// +optional
-	HTTPUpgrade []*ProtocolUpgradeConfig `json:"httpUpgrade,omitempty"`
+	HTTPUpgrade []*ProtocolUpgradeConfig `json:"httpUpgrade,omitempty" patchMergeKey:"type" patchStrategy:"merge"`
 
 	// RequestBuffer allows the gateway to buffer and fully receive each request from a client before continuing to send the request
 	// upstream to the backends. This can be helpful to shield your backend servers from slow clients, and also to enforce a maximum size per request
@@ -92,6 +103,18 @@ type BackendTrafficPolicySpec struct {
 	// +notImplementedHide
 	// +optional
 	RequestBuffer *RequestBuffer `json:"requestBuffer,omitempty"`
+	// Telemetry configures the telemetry settings for the policy target (Gateway or xRoute).
+	// This will override the telemetry settings in the EnvoyProxy resource.
+	//
+	// +optional
+	Telemetry *BackendTelemetry `json:"telemetry,omitempty"`
+}
+
+type BackendTelemetry struct {
+	// Tracing configures the tracing settings for the backend or HTTPRoute.
+	//
+	// +optional
+	Tracing *Tracing `json:"tracing,omitempty"`
 }
 
 type ProtocolUpgradeConfig struct {

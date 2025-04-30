@@ -34,15 +34,11 @@ type ResourceRender interface {
 	LabelSelector() labels.Selector
 	ServiceAccount() (*corev1.ServiceAccount, error)
 	Service() (*corev1.Service, error)
-	ConfigMap() (*corev1.ConfigMap, error)
+	ConfigMap(cert string) (*corev1.ConfigMap, error)
 	Deployment() (*appsv1.Deployment, error)
-	DeploymentSpec() (*egv1a1.KubernetesDeploymentSpec, error)
 	DaemonSet() (*appsv1.DaemonSet, error)
-	DaemonSetSpec() (*egv1a1.KubernetesDaemonSetSpec, error)
 	HorizontalPodAutoscaler() (*autoscalingv2.HorizontalPodAutoscaler, error)
-	HorizontalPodAutoscalerSpec() (*egv1a1.KubernetesHorizontalPodAutoscalerSpec, error)
 	PodDisruptionBudget() (*policyv1.PodDisruptionBudget, error)
-	PodDisruptionBudgetSpec() (*egv1a1.KubernetesPodDisruptionBudgetSpec, error)
 }
 
 // Infra manages the creation and deletion of Kubernetes infrastructure
@@ -65,8 +61,12 @@ type Infra struct {
 
 // NewInfra returns a new Infra.
 func NewInfra(cli client.Client, cfg *config.Server) *Infra {
+	var ns string
+	if !cfg.EnvoyGateway.GatewayNamespaceMode() {
+		ns = cfg.ControllerNamespace
+	}
 	return &Infra{
-		Namespace:    cfg.Namespace,
+		Namespace:    ns,
 		DNSDomain:    cfg.DNSDomain,
 		EnvoyGateway: cfg.EnvoyGateway,
 		Client:       New(cli),

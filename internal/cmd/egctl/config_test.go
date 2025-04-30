@@ -223,8 +223,6 @@ func TestExtractSubResourcesConfigDump(t *testing.T) {
 }
 
 func TestLabelSelectorBadInput(t *testing.T) {
-	podNamespace = "default"
-
 	cases := []struct {
 		name   string
 		args   []string
@@ -297,7 +295,7 @@ func (f *fakeCLIClient) PodsForSelector(string, ...string) (*corev1.PodList, err
 	return &corev1.PodList{Items: f.pods}, nil
 }
 
-func (f *fakeCLIClient) PodExec(types.NamespacedName, string, string) (stdout string, stderr string, err error) {
+func (f *fakeCLIClient) PodExec(types.NamespacedName, string, string) (stdout, stderr string, err error) {
 	return "", "", nil
 }
 

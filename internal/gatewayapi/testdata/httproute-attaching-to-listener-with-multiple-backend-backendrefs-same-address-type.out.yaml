@@ -178,8 +178,10 @@ httpRoutes:
         status: "True"
         type: Accepted
       - lastTransitionTime: null
-        message: Unix domain sockets are not supported in backend references
-        reason: UnsupportedRefAddressFound
+        message: |-
+          Failed to process route rule 0 backendRef 0: unix domain sockets are not supported in backend references.
+          Failed to process route rule 0 backendRef 1: unix domain sockets are not supported in backend references.
+        reason: UnsupportedAddressType
         status: "False"
         type: ResolvedRefs
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
@@ -283,6 +285,7 @@ infraIR:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
       name: envoy-gateway/gateway-1
+      namespace: envoy-gateway-system
 xdsIR:
   envoy-gateway/gateway-1:
     accessLog:

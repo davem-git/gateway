@@ -53,6 +53,7 @@ infraIR:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
       name: envoy-gateway/gateway-1
+      namespace: envoy-gateway-system
 udpRoutes:
 - apiVersion: gateway.networking.k8s.io/v1alpha2
   kind: UDPRoute
@@ -72,8 +73,7 @@ udpRoutes:
     parents:
     - conditions:
       - lastTransitionTime: null
-        message: 'backend Service validation failed: UDP Port 8080 not found on Service
-          default/service-1'
+        message: UDP Port 8080 not found on Service default/service-1
         reason: Failed to process the settings associated with the UDP route.
         status: "False"
         type: Accepted

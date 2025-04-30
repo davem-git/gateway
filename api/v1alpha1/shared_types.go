@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 const (
@@ -36,6 +37,28 @@ const (
 	HTTPProtocol = "http"
 	// GRPCProtocol is the common-used grpc protocol.
 	GRPCProtocol = "grpc"
+)
+
+const (
+	// PolicyConditionOverridden indicates whether the policy has
+	// completely attached to all the sections within the target or not.
+	//
+	// Possible reasons for this condition to be True are:
+	//
+	// * "Overridden"
+	//
+	PolicyConditionOverridden gwapiv1a2.PolicyConditionType = "Overridden"
+
+	// PolicyReasonOverridden is used with the "Overridden" condition when the policy
+	// has been overridden by another policy targeting a section within the same target.
+	PolicyReasonOverridden gwapiv1a2.PolicyConditionReason = "Overridden"
+
+	// PolicyConditionMerged indicates whether the policy has
+	// been merged with another policy targeting the parent(e.g. Gateway).
+	PolicyConditionMerged gwapiv1a2.PolicyConditionType = "Merged"
+	// PolicyReasonMerged is used with the "Merged" condition when the policy
+	// has been merged with another policy targeting the parent(e.g. Gateway).
+	PolicyReasonMerged gwapiv1a2.PolicyConditionReason = "Merged"
 )
 
 // GroupVersionKind unambiguously identifies a Kind.
@@ -330,10 +353,13 @@ type KubernetesServiceSpec struct {
 }
 
 // LogLevel defines a log level for Envoy Gateway and EnvoyProxy system logs.
-// +kubebuilder:validation:Enum=debug;info;error;warn
+// +kubebuilder:validation:Enum=trace;debug;info;warn;error
 type LogLevel string
 
 const (
+	// LogLevelTrace defines the "Trace" logging level.
+	LogLevelTrace LogLevel = "trace"
+
 	// LogLevelDebug defines the "debug" logging level.
 	LogLevelDebug LogLevel = "debug"
 
@@ -753,4 +779,21 @@ type CustomResponseBody struct {
 	//
 	// +optional
 	ValueRef *gwapiv1.LocalObjectReference `json:"valueRef,omitempty"`
+}
+
+// Tracing defines the configuration for tracing.
+// TODO: we'd better deprecate SamplingRate in the EnvoyProxy spec, so that we can reuse the struct.
+type Tracing struct {
+	// SamplingFraction represents the fraction of requests that should be
+	// selected for tracing if no prior sampling decision has been made.
+	//
+	// This will take precedence over sampling fraction on EnvoyProxy if set.
+	//
+	// +optional
+	SamplingFraction *gwapiv1.Fraction `json:"samplingFraction,omitempty"`
+	// CustomTags defines the custom tags to add to each span.
+	// If provider is kubernetes, pod name and namespace are added by default.
+	//
+	// +optional
+	CustomTags map[string]CustomTag `json:"customTags,omitempty"`
 }

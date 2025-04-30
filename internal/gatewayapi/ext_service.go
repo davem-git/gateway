@@ -73,8 +73,13 @@ func (t *Translator) translateExtServiceBackendRefs(
 		Name:     destName,
 		Settings: ds,
 	}
+
 	if validationErr := rs.Validate(); validationErr != nil {
 		return nil, validationErr
+	}
+	// TODO: Support mixed destinations for ext service
+	if rs.HasMixedEndpoints() {
+		return nil, errors.New("external service destinations having multiple endpoint types are not supported")
 	}
 	return rs, nil
 }
@@ -150,7 +155,7 @@ func (t *Translator) processExtServiceDestination(
 	return ds, nil
 }
 
-func irIndexedExtServiceDestinationName(policyNamespacedName types.NamespacedName, policyKind string, configType string, idx int) string {
+func irIndexedExtServiceDestinationName(policyNamespacedName types.NamespacedName, policyKind, configType string, idx int) string {
 	return strings.ToLower(fmt.Sprintf(
 		"%s/%s/%s/%s/%d",
 		policyKind,

@@ -97,6 +97,8 @@ To uninstall the chart:
 | deployment.ports[3].targetPort | int | `19001` |  |
 | deployment.priorityClassName | string | `nil` |  |
 | deployment.replicas | int | `1` |  |
+| global.imagePullSecrets | list | `[]` | Global override for image pull secrets |
+| global.imageRegistry | string | `""` | Global override for image registry |
 | global.images.envoyGateway.image | string | `nil` |  |
 | global.images.envoyGateway.pullPolicy | string | `"Always"` |  |
 | global.images.envoyGateway.pullSecrets[0].name | string | `"regcred"` |  |
@@ -112,4 +114,6 @@ To uninstall the chart:
 | podDisruptionBudget.minAvailable | int | `0` |  |
 | service.annotations | object | `{}` |  |
 | service.trafficDistribution | string | `""` |  |
+| topologyInjector.annotations | object | `{}` |  |
+| topologyInjector.enabled | bool | `true` |  |
 
