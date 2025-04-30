@@ -94,9 +94,7 @@ config:
     logging:
       level:
         default: debug
-    admin:
-      enableDumpConfig: true
-
+    extensionApis: {}
 createNamespace: false
 
 kubernetesClusterDomain: cluster.local
