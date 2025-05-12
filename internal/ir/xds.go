@@ -1903,8 +1903,6 @@ type TCPListener struct {
 	Connection *ClientConnection `json:"connection,omitempty" yaml:"connection,omitempty"`
 	// Routes associated with TCP traffic to the listener.
 	Routes []*TCPRoute `json:"routes,omitempty" yaml:"routes,omitempty"`
-
-	NetworkFilters []*NetworkFilter `json:"networkFilters,omitempty" yaml:"networkFilters,omitempty"`
 }
 
 // TCPRoute holds the route information associated with the TCP Route
