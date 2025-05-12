@@ -14,7 +14,7 @@ global:
       image: ${GatewayImage}
       # Specify image pull policy if default behavior isn't desired.
       # Default behavior: latest images will be Always else IfNotPresent.
-      pullPolicy: Always
+      pullPolicy: ${GatewayImagePullPolicy}
       # List of secrets in the same namespace of the component that can be used to pull images from private repositories.
       pullSecrets:
         - name: regcred
@@ -38,7 +38,7 @@ deployment:
       # if both this and global.imageRegistry are specified, this has to include both registry and repository explicitly, eg docker.io/envoyproxy/gateway
       repository: ""
       tag: ""
-    magePullPolicy: Always
+    imagePullPolicy: ""
     imagePullSecrets: []
     resources:
       limits:

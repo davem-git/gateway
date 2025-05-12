@@ -8,7 +8,6 @@ package translator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -584,31 +583,57 @@ func findXdsHTTPRouteConfigName(xdsListener *listenerv3.Listener) string {
 	return ""
 }
 
-func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
-	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
-	connection *ir.ClientConnection, networkFilters []*ir.NetworkFilter,
-) error {
-	if irRoute == nil {
-		return errors.New("tcp listener is nil")
+func buildTCPFilterChain(
+	irRoute *ir.TCPRoute,
+	clusterName string,
+	statPrefix string,
+	accesslog *ir.AccessLog,
+	timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection,
+) (*listenerv3.FilterChain, error) {
+	var filters []*listenerv3.Filter
+
+	// Create access logs
+	al, err := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
+	if err != nil {
+		return nil, err
 	}
 
-	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
-	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
-	statPrefix := "tcp"
-	if isTLSPassthrough {
-		statPrefix = "tls-passthrough"
+	// Add RBAC filter first if Security features exist
+	if irRoute.Security != nil && irRoute.Security.Authorization != nil {
+		logger := log.Log.WithName("tcp-rbac")
+		logger.Info("Creating RBAC filter from Security features")
+
+		// Convert IR Authorization to RBAC config
+		rbacConfig := &rbacconfig.RBAC{
+			StatPrefix: "tcp_rbac_",
+			Rules: &rbacv3.RBAC{
+				Action:   rbacv3.RBAC_ALLOW,
+				Policies: convertRules(irRoute.Security.Authorization.Rules),
+			},
+		}
+
+		if f, err := toNetworkFilter("envoy.filters.network.rbac", rbacConfig); err == nil {
+			filters = append(filters, f)
+			logger.Info("Added RBAC filter to chain",
+				"num_policies", len(rbacConfig.Rules.Policies))
+		} else {
+			logger.Error(err, "Failed to create RBAC network filter")
+			return nil, err
+		}
 	}
 
-	if isTLSTerminate {
-		statPrefix = "tls-terminate"
+	// Add connection limit filter if configured
+	if connection != nil && connection.ConnectionLimit != nil {
+		cl := buildConnectionLimitFilter(statPrefix, connection)
+		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
+			filters = append(filters, clf)
+		} else {
+			return nil, err
+		}
 	}
 
-	// Append port to the statPrefix.
-	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
-	al, error := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
-	if error != nil {
-		return error
-	}
+	// Always add TCP proxy filter last
 	mgr := &tcpv3.TcpProxy{
 		AccessLog:  al,
 		StatPrefix: statPrefix,
@@ -618,69 +643,56 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 		HashPolicy: buildTCPProxyHashPolicy(irRoute.LoadBalancer),
 	}
 
-	if timeout != nil && timeout.TCP != nil {
-		if timeout.TCP.IdleTimeout != nil {
-			mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
-		}
+	// Add timeout if configured
+	if timeout != nil && timeout.TCP != nil && timeout.TCP.IdleTimeout != nil {
+		mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
 	}
 
-	var filters []*listenerv3.Filter
-
-	// With this correct code:
-	for _, nf := range networkFilters {
-		if nf.Name == "envoy.filters.network.rbac" {
-			logger := log.Log.WithName("tcp-rbac")
-
-			logger.Info("Processing RBAC filter",
-				"filter_name", nf.Name,
-				"default_action", nf.Config.DefaultAction,
-				"num_rules", len(nf.Config.Rules))
-			// Convert IR RBAC config to Envoy RBAC config
-			rbacConfig := &rbacconfig.RBAC{
-				StatPrefix: "tcp_rbac_",
-				Rules: &rbacv3.RBAC{
-					// When we want to ALLOW only specific CIDRs, set Action to ALLOW (only allow what matches)
-					Action:   rbacv3.RBAC_ALLOW, // Set to ALLOW regardless of the defaultAction
-					Policies: convertRules(nf.Config.Rules),
-				},
-			}
-			logger.Info("Created RBAC config",
-				"action", rbacConfig.Rules.Action.String(),
-				"num_policies", len(rbacConfig.Rules.Policies))
-
-			if f, err := toNetworkFilter(nf.Name, rbacConfig); err == nil {
-				filters = append(filters, f)
-				logger.Info("Added RBAC filter to chain")
-			} else {
-				logger.Error(err, "Failed to create network filter")
-				return err
-			}
-		} else {
-			// Handle other filter types
-			return fmt.Errorf("unsupported network filter type: %s", nf.Name)
-		}
-	}
-
-	if connection != nil && connection.ConnectionLimit != nil {
-		cl := buildConnectionLimitFilter(statPrefix, connection)
-		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-			filters = append(filters, clf)
-		} else {
-			return err
-		}
-	}
-
+	// Add the TCP proxy filter (always last)
 	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
 		filters = append(filters, mgrf)
 	} else {
-		return err
+		return nil, err
 	}
 
+	// Build the filter chain
 	filterChain := &listenerv3.FilterChain{
 		Filters: filters,
 		Name:    irRoute.Name,
 	}
 
+	return filterChain, nil
+}
+
+func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
+	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection,
+) error {
+	if irRoute == nil {
+		return errors.New("tcp route is nil")
+	}
+
+	// Determine the appropriate statPrefix
+	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
+	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
+	statPrefix := "tcp"
+	if isTLSPassthrough {
+		statPrefix = "tls-passthrough"
+	}
+	if isTLSTerminate {
+		statPrefix = "tls-terminate"
+	}
+
+	// Append port to the statPrefix
+	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
+
+	// Build the filter chain using our new function
+	filterChain, err := buildTCPFilterChain(irRoute, clusterName, statPrefix, accesslog, timeout, connection)
+	if err != nil {
+		return err
+	}
+
+	// Handle TLS configuration
 	if isTLSPassthrough {
 		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
 			return err
@@ -702,6 +714,7 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 		filterChain.TransportSocket = tSocket
 	}
 
+	// Add the filter chain to the listener
 	xdsListener.FilterChains = append(xdsListener.FilterChains, filterChain)
 
 	return nil

@@ -367,7 +367,21 @@ func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 		p.Spec.ExtAuth != nil {
 		return fmt.Errorf("only authorization is supported for TCP routes")
 	}
+	// Additionally, verify that authorization is actually specified
+	if p.Spec.Authorization == nil {
+		return fmt.Errorf("authorization must be specified for TCP routes")
+	}
+	// For TCP routes, we need at least one rule with ClientCIDRs
+	if len(p.Spec.Authorization.Rules) == 0 {
+		return fmt.Errorf("at least one authorization rule must be specified for TCP routes")
+	}
 
+	// Check that each rule has at least one CIDR specified
+	for i, rule := range p.Spec.Authorization.Rules {
+		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) == 0 {
+			return fmt.Errorf("rule %d with Allow action must specify at least one ClientCIDR for TCP routes", i)
+		}
+	}
 	return nil
 }
 
@@ -649,6 +663,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 		err, errs     error
 	)
 
+	// Build the authorization IR from the policy
 	if policy.Spec.Authorization != nil {
 		if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
 			errs = errors.Join(errs, err)
@@ -656,8 +671,11 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 		}
 	}
 
+	// Get the route prefix without trailing slash for TCP routes
 	prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
 	parentRefs := GetParentReferences(route)
+
+	// Process each parent gateway this route is attached to
 	for _, p := range parentRefs {
 		parentRefCtx := GetRouteParentContext(route, p)
 		gtwCtx := parentRefCtx.GetGateway()
@@ -665,51 +683,25 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 			continue
 		}
 
+		// Get the IR for this gateway
 		irKey := t.getIRKey(gtwCtx.Gateway)
+
+		// Update each listener that this route is attached to
 		for _, listener := range parentRefCtx.listeners {
 			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
 			if irListener == nil {
 				continue
 			}
 
-			// Create TCP RBAC filter
-			rbacFilter := &ir.NetworkFilter{
-				Name: "envoy.filters.network.rbac",
-				Config: &ir.RBACConfig{
-					Rules:               authorization.Rules,
-					DefaultAction:       authorization.DefaultAction,
-					StatPrefix:          "tcp_rbac_",
-					SourceIPEnforcement: true,
-				},
-			}
-
-			// Create a new filter chain
-			var filters []*ir.NetworkFilter
-
-			// Add RBAC filter first
-			filters = append(filters, rbacFilter)
-
-			// Add existing filters second
-			for _, existingFilter := range irListener.NetworkFilters {
-				if existingFilter.Name == "envoy.filters.network.tcp_proxy" {
-					filters = append(filters, existingFilter)
-				}
-			}
-
-			// Replace the existing filter chain
-			irListener.NetworkFilters = filters
-			fmt.Printf("Updated network filters: %+v\n", irListener.NetworkFilters)
-
-			// Update route security
+			// Update route security - this is the key change
 			for _, r := range irListener.Routes {
 				if r.Name == prefix {
-					r.Security = &ir.SecurityFeatures{
-						Authorization: authorization,
+					// Set the security features on the route
+					if r.Security == nil {
+						r.Security = &ir.SecurityFeatures{}
 					}
+					r.Security.Authorization = authorization
 				}
-			}
-			for _, l := range xdsIR[irKey].TCP {
-				fmt.Printf("Final TCP Listener %s filters: %+v\n", l.Name, l.NetworkFilters)
 			}
 		}
 	}
