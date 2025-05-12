@@ -1278,6 +1278,8 @@ func (t *Translator) buildAPIKeyAuth(
 	}
 
 	credentials := make(map[string]ir.PrivateBytes)
+	seenKeys := make(sets.Set[string])
+
 	for _, ref := range policy.Spec.APIKeyAuth.CredentialRefs {
 		credentialsSecret, err := t.validateSecretRef(
 			false, from, ref, resources)
@@ -1288,6 +1290,13 @@ func (t *Translator) buildAPIKeyAuth(
 			if _, ok := credentials[clientid]; ok {
 				continue
 			}
+
+			keyString := string(key)
+			if seenKeys.Has(keyString) {
+				return nil, errors.New("duplicated API key")
+			}
+
+			seenKeys.Insert(keyString)
 			credentials[clientid] = key
 		}
 	}
@@ -1372,7 +1381,7 @@ func (t *Translator) buildExtAuth(
 		backendSettings = http.BackendSettings
 		switch {
 		case len(http.BackendRefs) > 0:
-			backendRefs = http.BackendCluster.BackendRefs
+			backendRefs = http.BackendRefs
 		case http.BackendRef != nil:
 			backendRefs = []egv1a1.BackendRef{
 				{
@@ -1387,7 +1396,7 @@ func (t *Translator) buildExtAuth(
 		protocol = ir.GRPC
 		backendSettings = grpc.BackendSettings
 		switch {
-		case len(grpc.BackendCluster.BackendRefs) > 0:
+		case len(grpc.BackendRefs) > 0:
 			backendRefs = grpc.BackendRefs
 		case grpc.BackendRef != nil:
 			backendRefs = []egv1a1.BackendRef{
