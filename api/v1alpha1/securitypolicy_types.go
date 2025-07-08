@@ -82,6 +82,7 @@ type SecurityPolicySpec struct {
 	//
 	// +optional
 	Authorization *Authorization `json:"authorization,omitempty"`
+
 }
 
 //+kubebuilder:object:root=true

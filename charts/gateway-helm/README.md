@@ -65,8 +65,8 @@ helm uninstall eg -n envoy-gateway-system
 | deployment.annotations | object | `{}` |  |
 | deployment.envoyGateway.image.repository | string | `""` |  |
 | deployment.envoyGateway.image.tag | string | `""` |  |
-| deployment.envoyGateway.imagePullPolicy | string | `""` |  |
 | deployment.envoyGateway.imagePullSecrets | list | `[]` |  |
+| deployment.envoyGateway.magePullPolicy | string | `"Always"` |  |
 | deployment.envoyGateway.resources.limits.memory | string | `"1024Mi"` |  |
 | deployment.envoyGateway.resources.requests.cpu | string | `"100m"` |  |
 | deployment.envoyGateway.resources.requests.memory | string | `"256Mi"` |  |
@@ -101,8 +101,8 @@ helm uninstall eg -n envoy-gateway-system
 | global.imagePullSecrets | list | `[]` | Global override for image pull secrets |
 | global.imageRegistry | string | `""` | Global override for image registry |
 | global.images.envoyGateway.image | string | `nil` |  |
-| global.images.envoyGateway.pullPolicy | string | `nil` |  |
-| global.images.envoyGateway.pullSecrets | list | `[]` |  |
+| global.images.envoyGateway.pullPolicy | string | `"Always"` |  |
+| global.images.envoyGateway.pullSecrets[0].name | string | `"regcred"` |  |
 | global.images.ratelimit.image | string | `"docker.io/envoyproxy/ratelimit:master"` |  |
 | global.images.ratelimit.pullPolicy | string | `"IfNotPresent"` |  |
 | global.images.ratelimit.pullSecrets | list | `[]` |  |
@@ -117,4 +117,3 @@ helm uninstall eg -n envoy-gateway-system
 | service.trafficDistribution | string | `""` |  |
 | topologyInjector.annotations | object | `{}` |  |
 | topologyInjector.enabled | bool | `true` |  |
-
