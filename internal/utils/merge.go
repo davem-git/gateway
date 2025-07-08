@@ -11,11 +11,12 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 )
 
-func MergeWithPatch[T any](original T, patch *egv1a1.KubernetesPatchSpec) (T, error) {
+func MergeWithPatch[T client.Object](original T, patch *egv1a1.KubernetesPatchSpec) (T, error) {
 	if patch == nil {
 		return original, nil
 	}
@@ -28,7 +29,7 @@ func MergeWithPatch[T any](original T, patch *egv1a1.KubernetesPatchSpec) (T, er
 	return mergeInternal(original, patch.Value.Raw, mergeType)
 }
 
-func mergeInternal[T any](original T, patchJSON []byte, mergeType egv1a1.MergeType) (T, error) {
+func mergeInternal[T client.Object](original T, patchJSON []byte, mergeType egv1a1.MergeType) (T, error) {
 	var (
 		patchedJSON  []byte
 		originalJSON []byte
@@ -63,7 +64,7 @@ func mergeInternal[T any](original T, patchJSON []byte, mergeType egv1a1.MergeTy
 	return *res, nil
 }
 
-func Merge[T any](original, patch T, mergeType egv1a1.MergeType) (T, error) {
+func Merge[T client.Object](original, patch T, mergeType egv1a1.MergeType) (T, error) {
 	var (
 		patchJSON []byte
 		err       error

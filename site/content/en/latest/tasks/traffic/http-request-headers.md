@@ -446,7 +446,7 @@ spec:
 
 In some cases, it could be necessary to modify headers before the proxy performs any sort of processing, routing or tracing. Envoy Gateway supports this functionality using the [ClientTrafficPolicy][] API.
 
-A ClientTrafficPolicy resource can be attached to a Gateway resource to configure early header modifications for all its routes. In the following example we will demonstrate how early header modification can be configured.
+A ClientTrafficPolicy resource can be attached to a Gateway resource to configure early header modifications for all its routes. In the following example we will demonstrate how early header modification can be configured. 
 
 {{< tabpane text=true >}}
 {{% tab header="Apply from stdin" %}}
@@ -482,7 +482,7 @@ spec:
           - name: early-set-header
             value: late
           - name: early-removed-header
-            value: late
+            value: late 
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: ClientTrafficPolicy
@@ -577,7 +577,7 @@ example app should indicate that the upstream example app received the following
 - `early-removed-header` contains only the late (RouteFilter) value, since the early modification deleted the client value.
 
 ```console
-$ curl -vvv --header "Host: headers.example" "http://${GATEWAY_HOST}/get" --header  "early-added-header: client" --header  "early-set-header: client" --header  "early-removed-header: client"
+$ curl -vvv --header "Host: headers.example" "http://${GATEWAY_HOST}/get" --header  "early-added-header: client" --header  "early-set-header: client" --header  "early-removed-header: client" 
 ...
 > GET /get HTTP/1.1
 > Host: headers.example
@@ -614,7 +614,7 @@ $ curl -vvv --header "Host: headers.example" "http://${GATEWAY_HOST}/get" --head
 ```
 
 [HTTPRoute]: https://gateway-api.sigs.k8s.io/api-types/httproute/
-[HTTPRoute filters]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1.HTTPRouteFilter
+[HTTPRoute filters]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPRouteFilter
 [Gateway API documentation]: https://gateway-api.sigs.k8s.io/
-[req_filter]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1.HTTPHeaderFilter
+[req_filter]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPHeaderFilter
 [ClientTrafficPolicy]: ../../../api/extension_types#clienttrafficpolicy

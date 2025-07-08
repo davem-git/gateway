@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -18,6 +17,7 @@ import (
 	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	ratelimitfilterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	rlsconfv3 "github.com/envoyproxy/go-control-plane/ratelimit/config/ratelimit/v3"
 	"github.com/envoyproxy/ratelimit/src/config"
@@ -25,10 +25,20 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	goyaml "gopkg.in/yaml.v3" // nolint: depguard
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/ir"
+	"github.com/envoyproxy/gateway/internal/xds/types"
+)
+
+const (
+	// rateLimitClientTLSCertFilename is the ratelimit tls cert file.
+	rateLimitClientTLSCertFilename = "/certs/tls.crt"
+	// rateLimitClientTLSKeyFilename is the ratelimit key file.
+	rateLimitClientTLSKeyFilename = "/certs/tls.key"
+	// rateLimitClientTLSCACertFilename is the ratelimit ca cert file.
+	rateLimitClientTLSCACertFilename = "/certs/ca.crt"
 )
 
 // patchHCMWithRateLimit builds and appends the Rate Limit Filter to the HTTP connection manager
@@ -53,6 +63,15 @@ func (t *Translator) patchHCMWithRateLimit(mgr *hcmv3.HttpConnectionManager, irL
 	}
 }
 
+// routeContainsGlobalRateLimit checks if a route has global rate limit configuration.
+// Returns false if any required component is nil.
+func routeContainsGlobalRateLimit(irRoute *ir.HTTPRoute) bool {
+	return irRoute != nil &&
+		irRoute.Traffic != nil &&
+		irRoute.Traffic.RateLimit != nil &&
+		irRoute.Traffic.RateLimit.Global != nil
+}
+
 // isRateLimitPresent returns true if rate limit config exists for the listener.
 func (t *Translator) isRateLimitPresent(irListener *ir.HTTPListener) bool {
 	// Return false if global ratelimiting is disabled.
@@ -61,7 +80,7 @@ func (t *Translator) isRateLimitPresent(irListener *ir.HTTPListener) bool {
 	}
 	// Return true if rate limit config exists.
 	for _, route := range irListener.Routes {
-		if isValidGlobalRateLimit(route) {
+		if routeContainsGlobalRateLimit(route) {
 			return true
 		}
 	}
@@ -69,38 +88,45 @@ func (t *Translator) isRateLimitPresent(irListener *ir.HTTPListener) bool {
 }
 
 // buildRateLimitFilter constructs a list of HTTP filters for rate limiting based on the provided HTTP listener configuration.
-// It creates separate filters for shared and non-shared rate limits.
+// It creates at most one filter per domain to avoid duplicates.
 func (t *Translator) buildRateLimitFilter(irListener *ir.HTTPListener) []*hcmv3.HttpFilter {
 	if irListener == nil || irListener.Routes == nil {
 		return nil
 	}
-	domains := sets.New[string]()
-	for _, route := range irListener.Routes {
-		if !isValidGlobalRateLimit(route) {
-			continue
-		}
-		for _, rule := range route.Traffic.RateLimit.Global.Rules {
-			if isRuleShared(rule) {
-				domains.Insert(stripRuleIndexSuffix(rule.Name))
-			}
-		}
-	}
-	domains.Insert(irListener.Name)
-
-	// Deterministic order otherwise tests break
-	domainList := sets.List(domains)
-	sort.Strings(domainList)
 
 	var filters []*hcmv3.HttpFilter
-	for _, domain := range domainList {
-		filterName := egv1a1.EnvoyFilterRateLimit.String()
-		if domain != irListener.Name {
-			filterName += "/" + domain
+	// Map to track which domains we've already created filters for, prevents creating duplicate filters for the same domain
+	processedDomains := make(map[string]bool)
+
+	// Iterate over each route in the listener to create rate limit filters for shared rate limits.
+	for _, route := range irListener.Routes {
+		if !routeContainsGlobalRateLimit(route) {
+			continue
 		}
-		if filter := createRateLimitFilter(t, irListener, domain, filterName); filter != nil {
+
+		var domain string
+		filterName := getRateLimitFilterName(route)
+		if isSharedRateLimit(route) {
+			// For shared rate limits, use the domain derived from the traffic policy
+			domain = getDomainName(route)
+		} else {
+			// For non-shared rate limits, use the listener domain
+			domain = irListener.Name
+		}
+
+		// Skip if we've already created a filter for this domain
+		if processedDomains[domain] {
+			continue
+		}
+		processedDomains[domain] = true
+
+		// Create a filter for this domain
+		filter := createRateLimitFilter(t, irListener, domain, filterName)
+		if filter != nil {
 			filters = append(filters, filter)
 		}
 	}
+
 	return filters
 }
 
@@ -158,7 +184,7 @@ func createRateLimitFilter(t *Translator, irListener *ir.HTTPListener, domain, f
 func patchRouteWithRateLimit(route *routev3.Route, irRoute *ir.HTTPRoute) error { //nolint:unparam
 	// Return early if no rate limit config exists.
 	xdsRouteAction := route.GetRoute()
-	if !isValidGlobalRateLimit(irRoute) || xdsRouteAction == nil {
+	if !routeContainsGlobalRateLimit(irRoute) || xdsRouteAction == nil {
 		return nil
 	}
 	rateLimits, costSpecified := buildRouteRateLimits(irRoute)
@@ -197,47 +223,42 @@ func patchRouteWithRateLimitOnTypedFilterConfig(route *routev3.Route, rateLimits
 
 // buildRouteRateLimits constructs rate limit actions for a given route based on the global rate limit configuration.
 func buildRouteRateLimits(route *ir.HTTPRoute) (rateLimits []*routev3.RateLimit, costSpecified bool) {
+	descriptorPrefix := route.Name
 	// Ensure route has rate limit config
-	if !isValidGlobalRateLimit(route) {
+	if !routeContainsGlobalRateLimit(route) {
 		return nil, false
 	}
 
-	// Get the global rate limit configuration
+	// Determine if the rate limit is shared across multiple routes.
 	global := route.Traffic.RateLimit.Global
+	isShared := isSharedRateLimit(route)
+
+	// Set the descriptor key based on whether the rate limit is shared.
+	var descriptorKey, descriptorValue string
+	if isShared {
+		// For shared rate limits, use BTP name as key and namespace as value
+		descriptorKey = route.Traffic.Name
+		descriptorValue = route.Traffic.Name
+	} else {
+		// For non-shared rate limits, include the route name in the descriptor
+		descriptorKey = getRouteDescriptor(descriptorPrefix)
+		descriptorValue = descriptorKey
+	}
+
+	// Create a generic key action for the route descriptor.
+	routeDescriptor := &routev3.RateLimit_Action{
+		ActionSpecifier: &routev3.RateLimit_Action_GenericKey_{
+			GenericKey: &routev3.RateLimit_Action_GenericKey{
+				DescriptorKey:   descriptorKey,
+				DescriptorValue: descriptorValue,
+			},
+		},
+	}
 
 	// Iterate over each rule in the global rate limit configuration.
 	for rIdx, rule := range global.Rules {
-		// Create a list of rate limit actions for the current rule.
-		var rlActions []*routev3.RateLimit_Action
-
-		// Create the route descriptor using the rule's shared attribute
-		var descriptorKey, descriptorValue string
-		if isRuleShared(rule) {
-			// For shared rule, use full rule name
-			descriptorKey = rule.Name
-			descriptorValue = rule.Name
-		} else {
-			// For non-shared rule, use route name in descriptor
-			descriptorKey = getRouteDescriptor(route.Name)
-			descriptorValue = descriptorKey
-		}
-
-		// Create a generic key action for the route descriptor.
-		routeDescriptor := &routev3.RateLimit_Action{
-			ActionSpecifier: &routev3.RateLimit_Action_GenericKey_{
-				GenericKey: &routev3.RateLimit_Action_GenericKey{
-					DescriptorKey:   descriptorKey,
-					DescriptorValue: descriptorValue,
-				},
-			},
-		}
-
-		// Add the generic key action
-		rlActions = append(rlActions, routeDescriptor)
-
-		// Calculate the domain-specific rule index (0-based for each domain)
-		ruleIsShared := isRuleShared(rule)
-		domainRuleIdx := getDomainRuleIndex(global.Rules, rIdx, ruleIsShared)
+		// Initialize a list of rate limit actions for the current rule.
+		rlActions := []*routev3.RateLimit_Action{routeDescriptor}
 
 		// Process each header match in the rule.
 		for mIdx, match := range rule.HeaderMatches {
@@ -245,7 +266,7 @@ func buildRouteRateLimits(route *ir.HTTPRoute) (rateLimits []*routev3.RateLimit,
 
 			// Handle distinct matches by setting up request header actions.
 			if match.Distinct {
-				descriptorKey := getRouteRuleDescriptor(domainRuleIdx, mIdx)
+				descriptorKey := getRouteRuleDescriptor(rIdx, mIdx)
 				action = &routev3.RateLimit_Action{
 					ActionSpecifier: &routev3.RateLimit_Action_RequestHeaders_{
 						RequestHeaders: &routev3.RateLimit_Action_RequestHeaders{
@@ -256,8 +277,8 @@ func buildRouteRateLimits(route *ir.HTTPRoute) (rateLimits []*routev3.RateLimit,
 				}
 			} else {
 				// Handle non-distinct matches by setting up header value match actions.
-				descriptorKey := getRouteRuleDescriptor(domainRuleIdx, mIdx)
-				descriptorVal := getRouteRuleDescriptor(domainRuleIdx, mIdx)
+				descriptorKey := getRouteRuleDescriptor(rIdx, mIdx)
+				descriptorVal := getRouteRuleDescriptor(rIdx, mIdx)
 				headerMatcher := &routev3.HeaderMatcher{
 					Name: match.Name,
 					HeaderMatchSpecifier: &routev3.HeaderMatcher_StringMatch{
@@ -337,8 +358,8 @@ func buildRouteRateLimits(route *ir.HTTPRoute) (rateLimits []*routev3.RateLimit,
 			action := &routev3.RateLimit_Action{
 				ActionSpecifier: &routev3.RateLimit_Action_GenericKey_{
 					GenericKey: &routev3.RateLimit_Action_GenericKey{
-						DescriptorKey:   getRouteRuleDescriptor(domainRuleIdx, -1),
-						DescriptorValue: getRouteRuleDescriptor(domainRuleIdx, -1),
+						DescriptorKey:   getRouteRuleDescriptor(rIdx, -1),
+						DescriptorValue: getRouteRuleDescriptor(rIdx, -1),
 					},
 				},
 			}
@@ -347,7 +368,6 @@ func buildRouteRateLimits(route *ir.HTTPRoute) (rateLimits []*routev3.RateLimit,
 
 		// Create a rate limit object for the current rule.
 		rateLimit := &routev3.RateLimit{Actions: rlActions}
-
 		if c := rule.RequestCost; c != nil {
 			// Set the hits addend for the request cost if specified.
 			rateLimit.HitsAddend = rateLimitCostToHitsAddend(c)
@@ -403,40 +423,43 @@ func GetRateLimitServiceConfigStr(pbCfg *rlsconfv3.RateLimitConfig) (string, err
 // It returns a list of unique configurations, one for each domain needed across all listeners.
 // For shared rate limits, it ensures we only process each shared domain once to improve efficiency.
 func BuildRateLimitServiceConfig(irListeners []*ir.HTTPListener) []*rlsconfv3.RateLimitConfig {
-	// Map to store rate limit descriptors by domain name
-	domainDesc := make(map[string][]*rlsconfv3.RateLimitDescriptor)
+	// Map to store descriptors for each domain
+	domainDescriptors := make(map[string][]*rlsconfv3.RateLimitDescriptor)
+	// Map to track which domains we've already created filters for, prevents creating duplicate filters for the same domain
+	processedSharedDomains := make(map[string]bool)
 
 	// Process each listener
 	for _, irListener := range irListeners {
-		// Process each route in the listener
+		// Process each route to build descriptors
 		for _, route := range irListener.Routes {
-			// Skip routes without valid global rate limit configuration
-			if !isValidGlobalRateLimit(route) {
+			if !routeContainsGlobalRateLimit(route) {
 				continue
 			}
 
-			// Build all descriptors for this route in a single pass to maintain consistent indices
-			descriptors := buildRateLimitServiceDescriptors(route)
+			domain := irListener.Name
+			if isSharedRateLimit(route) {
+				domain = getDomainName(route)
 
-			// Skip if no descriptors were created
-			if len(descriptors) == 0 {
-				continue
-			}
-
-			// For each rule, add to the correct domain only
-			for rIdx, rule := range route.Traffic.RateLimit.Global.Rules {
-				descriptor := descriptors[rIdx]
-				domain := irListener.Name
-				if isRuleShared(rule) {
-					domain = stripRuleIndexSuffix(rule.Name)
+				// Skip if we've already processed this shared domain
+				if processedSharedDomains[domain] {
+					continue
 				}
-				addRateLimitDescriptor(route, rule, descriptor, domain, domainDesc)
+				processedSharedDomains[domain] = true
 			}
+
+			// Get route rule descriptors within each route
+			serviceDescriptors := buildRateLimitServiceDescriptors(route)
+			if len(serviceDescriptors) == 0 {
+				continue
+			}
+
+			// Add the rate limit descriptor (handles both shared and non-shared)
+			addRateLimitDescriptor(route, serviceDescriptors, domain, domainDescriptors)
 		}
 	}
 
-	// Convert domain descriptor map to list of rate limit configurations
-	return createRateLimitConfigs(domainDesc)
+	configs := createRateLimitConfigs(domainDescriptors)
+	return configs
 }
 
 // createRateLimitConfigs creates rate limit configs from the domain descriptor map
@@ -456,26 +479,7 @@ func createRateLimitConfigs(
 	return configs
 }
 
-// Helper to recursively compare two RateLimitDescriptors for equality
-func descriptorsEqual(a, b *rlsconfv3.RateLimitDescriptor) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	if a.Key != b.Key || a.Value != b.Value {
-		return false
-	}
-	if len(a.Descriptors) != len(b.Descriptors) {
-		return false
-	}
-	for i := range a.Descriptors {
-		if !descriptorsEqual(a.Descriptors[i], b.Descriptors[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// addRateLimitDescriptor adds rate limit descriptors from a single rule to the domain descriptor map.
+// addRateLimitDescriptor adds rate limit descriptors to the domain descriptor map.
 // Handles both shared and route-specific rate limits.
 //
 // An example of route descriptor looks like this:
@@ -488,94 +492,34 @@ func descriptorsEqual(a, b *rlsconfv3.RateLimitDescriptor) bool {
 //   - ...
 func addRateLimitDescriptor(
 	route *ir.HTTPRoute,
-	rule *ir.RateLimitRule,
-	descriptor *rlsconfv3.RateLimitDescriptor,
+	serviceDescriptors []*rlsconfv3.RateLimitDescriptor,
 	domain string,
 	domainDescriptors map[string][]*rlsconfv3.RateLimitDescriptor,
 ) {
-	if !isValidGlobalRateLimit(route) || descriptor == nil {
-		return
-	}
+	var key, value string
 
-	var descriptorKey string
-	if isRuleShared(rule) {
-		descriptorKey = rule.Name
+	if isSharedRateLimit(route) {
+		// For shared rate limits, use traffic policy name key/value
+		key = route.Traffic.Name
+		value = route.Traffic.Name
 	} else {
-		descriptorKey = getRouteDescriptor(route.Name)
+		// For non-shared rate limits, use route descriptor key/value
+		key = getRouteDescriptor(route.Name)
+		value = getRouteDescriptor(route.Name)
 	}
 
-	// Find or create descriptor in domainDescriptors[domain]
-	var descriptorRule *rlsconfv3.RateLimitDescriptor
-	found := false
-	for _, d := range domainDescriptors[domain] {
-		if d.Key == descriptorKey {
-			descriptorRule = d
-			found = true
-			break
-		}
+	descriptor := &rlsconfv3.RateLimitDescriptor{
+		Key:         key,
+		Value:       value,
+		Descriptors: serviceDescriptors,
 	}
-	if !found {
-		descriptorRule = &rlsconfv3.RateLimitDescriptor{Key: descriptorKey, Value: descriptorKey}
-		domainDescriptors[domain] = append(domainDescriptors[domain], descriptorRule)
-	}
-
-	// Ensure no duplicate descriptors
-	alreadyExists := false
-	for _, existing := range descriptorRule.Descriptors {
-		if descriptorsEqual(existing, descriptor) {
-			alreadyExists = true
-			break
-		}
-	}
-	if !alreadyExists {
-		descriptorRule.Descriptors = append(descriptorRule.Descriptors, descriptor)
-	}
+	domainDescriptors[domain] = append(domainDescriptors[domain], descriptor)
 }
 
-// isSharedRateLimit checks if a route has at least one shared rate limit rule.
-// It returns true if any rule in the global rate limit configuration is marked as shared.
-// If no rules are shared or there's no global rate limit configuration, it returns false.
+// Helper function to check if a route has a shared rate limit
 func isSharedRateLimit(route *ir.HTTPRoute) bool {
-	if !isValidGlobalRateLimit(route) {
-		return false
-	}
-
 	global := route.Traffic.RateLimit.Global
-	if len(global.Rules) == 0 {
-		return false
-	}
-
-	// Check if any rule has shared=true
-	for _, rule := range global.Rules {
-		if isRuleShared(rule) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// Helper function to check if a specific rule is shared
-func isRuleShared(rule *ir.RateLimitRule) bool {
-	return rule != nil && rule.Shared != nil && *rule.Shared
-}
-
-// Helper function to map a global rule index to a domain-specific rule index
-// This ensures that both shared and non-shared rules have indices starting from 0 in their own domains.
-func getDomainRuleIndex(rules []*ir.RateLimitRule, globalRuleIdx int, ruleIsShared bool) int {
-	if globalRuleIdx < 0 || globalRuleIdx >= len(rules) {
-		return 0
-	}
-
-	// Count how many rules of the same "shared" status came before this one
-	count := 0
-	for i := 0; i < globalRuleIdx; i++ {
-		// If we're looking for shared rules, count shared ones; otherwise count non-shared ones
-		if (ruleIsShared && isRuleShared(rules[i])) || (!ruleIsShared && !isRuleShared(rules[i])) {
-			count++
-		}
-	}
-	return count
+	return global != nil && global.Shared != nil && *global.Shared && len(global.Rules) > 0
 }
 
 // buildRateLimitServiceDescriptors creates the rate limit service pb descriptors based on the global rate limit IR config.
@@ -587,6 +531,7 @@ func buildRateLimitServiceDescriptors(route *ir.HTTPRoute) []*rlsconfv3.RateLimi
 	global := route.Traffic.RateLimit.Global
 
 	pbDescriptors := make([]*rlsconfv3.RateLimitDescriptor, 0, len(global.Rules))
+	usedSharedKey := false // Track if the shared key has been used
 
 	// The order in which matching descriptors are built is consistent with
 	// the order in which ratelimit actions are built:
@@ -604,21 +549,17 @@ func buildRateLimitServiceDescriptors(route *ir.HTTPRoute) []*rlsconfv3.RateLimi
 		// We use a chain structure to describe the matching descriptors for one rule.
 		var head, cur *rlsconfv3.RateLimitDescriptor
 
-		// Calculate the domain-specific rule index (0-based for each domain)
-		ruleIsShared := isRuleShared(rule)
-		domainRuleIdx := getDomainRuleIndex(global.Rules, rIdx, ruleIsShared)
-
 		// 1) Header Matches
 		for mIdx, match := range rule.HeaderMatches {
 			pbDesc := new(rlsconfv3.RateLimitDescriptor)
 			// Distinct vs HeaderValueMatch
 			if match.Distinct {
 				// RequestHeader case
-				pbDesc.Key = getRouteRuleDescriptor(domainRuleIdx, mIdx)
+				pbDesc.Key = getRouteRuleDescriptor(rIdx, mIdx)
 			} else {
 				// HeaderValueMatch case
-				pbDesc.Key = getRouteRuleDescriptor(domainRuleIdx, mIdx)
-				pbDesc.Value = getRouteRuleDescriptor(domainRuleIdx, mIdx)
+				pbDesc.Key = getRouteRuleDescriptor(rIdx, mIdx)
+				pbDesc.Value = getRouteRuleDescriptor(rIdx, mIdx)
 			}
 
 			if mIdx == 0 {
@@ -643,14 +584,14 @@ func buildRateLimitServiceDescriptors(route *ir.HTTPRoute) []*rlsconfv3.RateLimi
 		//
 		// An example of rate limit server configuration looks like this:
 		//
-		//  descriptors:
-		//    - key: masked_remote_address //catch all the source IPs inside a CIDR
-		//      value: 192.168.0.0/16
-		//      descriptors:
-		//        - key: remote_address //set limit for individual IP
-		//          rate_limit:
-		//            unit: second
-		//            requests_per_unit: 100
+		//	descriptors:
+		//	  - key: masked_remote_address //catch all the source IPs inside a CIDR
+		//	    value: 192.168.0.0/16
+		//	    descriptors:
+		//	      - key: remote_address //set limit for individual IP
+		//	        rate_limit:
+		//	          unit: second
+		//	          requests_per_unit: 100
 		//
 		// Please refer to [Rate Limit Service Descriptor list definition](https://github.com/envoyproxy/ratelimit#descriptor-list-definition) for details.
 		// 2) CIDR Match
@@ -676,13 +617,25 @@ func buildRateLimitServiceDescriptors(route *ir.HTTPRoute) []*rlsconfv3.RateLimi
 				cur = pbDesc
 			}
 		}
+
 		// Case when both header and cidr match are not set and the ratelimit
 		// will be applied to all traffic.
 		// 3) No Match (apply to all traffic)
 		if !rule.IsMatchSet() {
 			pbDesc := new(rlsconfv3.RateLimitDescriptor)
-			pbDesc.Key = getRouteRuleDescriptor(domainRuleIdx, -1)
-			pbDesc.Value = getRouteRuleDescriptor(domainRuleIdx, -1)
+
+			// Determine if we should use the shared rate limit key (BTP-based) or a generic route key
+			if isSharedRateLimit(route) && !usedSharedKey {
+				// For shared rate limits, use BTP name and namespace
+				pbDesc.Key = route.Traffic.Name
+				pbDesc.Value = route.Traffic.Name
+				usedSharedKey = true
+			} else {
+				// Use generic key for non-shared rate limits
+				pbDesc.Key = getRouteRuleDescriptor(rIdx, -1)
+				pbDesc.Value = pbDesc.Key
+			}
+
 			head = pbDesc
 			cur = head
 		}
@@ -693,6 +646,77 @@ func buildRateLimitServiceDescriptors(route *ir.HTTPRoute) []*rlsconfv3.RateLimi
 	}
 
 	return pbDescriptors
+}
+
+// buildRateLimitTLSocket builds the TLS socket for the rate limit service.
+func buildRateLimitTLSocket() (*corev3.TransportSocket, error) {
+	tlsCtx := &tlsv3.UpstreamTlsContext{
+		CommonTlsContext: &tlsv3.CommonTlsContext{
+			TlsCertificates: []*tlsv3.TlsCertificate{},
+			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
+				ValidationContext: &tlsv3.CertificateValidationContext{
+					TrustedCa: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: rateLimitClientTLSCACertFilename},
+					},
+				},
+			},
+		},
+	}
+
+	tlsCert := &tlsv3.TlsCertificate{
+		CertificateChain: &corev3.DataSource{
+			Specifier: &corev3.DataSource_Filename{Filename: rateLimitClientTLSCertFilename},
+		},
+		PrivateKey: &corev3.DataSource{
+			Specifier: &corev3.DataSource_Filename{Filename: rateLimitClientTLSKeyFilename},
+		},
+	}
+	tlsCtx.CommonTlsContext.TlsCertificates = append(tlsCtx.CommonTlsContext.TlsCertificates, tlsCert)
+
+	tlsCtxAny, err := anypb.New(tlsCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &corev3.TransportSocket{
+		Name: wellknown.TransportSocketTls,
+		ConfigType: &corev3.TransportSocket_TypedConfig{
+			TypedConfig: tlsCtxAny,
+		},
+	}, nil
+}
+
+func (t *Translator) createRateLimitServiceCluster(tCtx *types.ResourceVersionTable, irListener *ir.HTTPListener, metrics *ir.Metrics) error {
+	// Return early if rate limits don't exist.
+	if !t.isRateLimitPresent(irListener) {
+		return nil
+	}
+	clusterName := getRateLimitServiceClusterName()
+	// Create cluster if it does not exist
+	host, port := t.getRateLimitServiceGrpcHostPort()
+	ds := &ir.DestinationSetting{
+		Weight:    ptr.To[uint32](1),
+		Protocol:  ir.GRPC,
+		Endpoints: []*ir.DestinationEndpoint{ir.NewDestEndpoint(host, port, false, nil)},
+		Name:      destinationSettingName(clusterName),
+	}
+
+	tSocket, err := buildRateLimitTLSocket()
+	if err != nil {
+		return err
+	}
+
+	return addXdsCluster(tCtx, &xdsClusterArgs{
+		name:         clusterName,
+		settings:     []*ir.DestinationSetting{ds},
+		tSocket:      tSocket,
+		endpointType: EndpointTypeDNS,
+		metrics:      metrics,
+	})
+}
+
+func getDomainName(route *ir.HTTPRoute) string {
+	return strings.Replace(route.Traffic.Name, "/", "-", 1)
 }
 
 func getRouteRuleDescriptor(ruleIndex, matchIndex int) string {
@@ -719,37 +743,12 @@ func (t *Translator) getRateLimitServiceGrpcHostPort() (string, uint32) {
 	return u.Hostname(), uint32(p)
 }
 
-// getRateLimitFilterName gets the filter name for rate limits.
-// If any rule in the route is shared, it appends the rule name to the base filter name.
+// For shared rate limits, it appends the traffic policy name to the base filter name.
 // For non-shared rate limits, it returns just the base filter name.
-// Note: This function is primarily used for route-level filter configuration, not for HTTP filters at the listener level.
 func getRateLimitFilterName(route *ir.HTTPRoute) string {
 	filterName := egv1a1.EnvoyFilterRateLimit.String()
-	// If any rule is shared, include the rule name in the filter name
 	if isSharedRateLimit(route) {
-		// Find the first shared rule to use its name
-		for _, rule := range route.Traffic.RateLimit.Global.Rules {
-			if isRuleShared(rule) {
-				filterName = fmt.Sprintf("%s/%s", filterName, stripRuleIndexSuffix(rule.Name))
-				break
-			}
-		}
+		filterName = fmt.Sprintf("%s/%s", filterName, route.Traffic.Name)
 	}
 	return filterName
-}
-
-// Helper to strip /rule/<index> from a rule name in order to use shared http filter
-func stripRuleIndexSuffix(name string) string {
-	if i := strings.LastIndex(name, "/rule/"); i != -1 {
-		return name[:i]
-	}
-	return strings.Replace(name, "/", "-", 1)
-}
-
-// Helper to check if a route has a valid global rate limit config
-func isValidGlobalRateLimit(route *ir.HTTPRoute) bool {
-	return route != nil &&
-		route.Traffic != nil &&
-		route.Traffic.RateLimit != nil &&
-		route.Traffic.RateLimit.Global != nil
 }

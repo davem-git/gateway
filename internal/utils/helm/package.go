@@ -66,14 +66,12 @@ type PackageTool struct {
 	logger Printer
 }
 
-func NewPackageTool(valueFiles ...string) *PackageTool {
+func NewPackageTool() *PackageTool {
 	return &PackageTool{
 		envSettings:  cli.New(),
 		actionConfig: &action.Configuration{},
 		chartName:    "oci://docker.io/envoyproxy/gateway-helm",
-		valuesOpts: &values.Options{
-			ValueFiles: valueFiles,
-		},
+		valuesOpts:   &values.Options{},
 	}
 }
 
@@ -258,7 +256,6 @@ func (pt *PackageTool) RunInstall(opts *PackageOptions) error {
 		return err
 	}
 
-	pt.logger.Println(fmt.Sprintf("Install with values: %v", egChartValues))
 	pt.setInstallOptions(opts)
 	release, err := pt.actionInstall.Run(egChart, egChartValues)
 	if err != nil {

@@ -1,7 +1,7 @@
 kind: BackendTrafficPolicy
 metadata:
   creationTimestamp: null
-  name: original-2
+  name: original
 spec:
   rateLimit:
     global:
@@ -23,7 +23,7 @@ spec:
         limit:
           requests: 21
           unit: Hour
-        shared: false
+        name: two
     type: Global
 status:
   ancestors: null

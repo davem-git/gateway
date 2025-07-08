@@ -8,15 +8,15 @@ When the [connection limit][] is reached, new connections are closed immediately
 Users may want to limit the number of connections for several reasons:
 * Protect resources like CPU and Memory.
 * Ensure that different listeners can receive a fair share of global resources.
-* Protect from malicious activity like DoS attacks.
+* Protect from malicious activity like DoS attacks. 
 
 Envoy Gateway introduces a new CRD called [Client Traffic Policy][] that allows the user to describe their desired connection limit settings.
 This instantiated resource can be linked to a [Gateway][].
 
 The Envoy [connection limit][] implementation is distributed: counters are not synchronized between different envoy proxies.
 
-When a [Client Traffic Policy][] is attached to a gateway, the connection limit will apply differently based on the
-[Listener][] protocol in use:
+When a [Client Traffic Policy][] is attached to a gateway, the connection limit will apply differently based on the 
+[Listener][] protocol in use: 
 - HTTP: all HTTP listeners in a [Gateway][] will share a common connection counter, and a limit defined by the policy.
 - HTTPS/TLS: each HTTPS/TLS listener will have a dedicated connection counter, and a limit defined by the policy.
 
@@ -53,9 +53,9 @@ Status code distribution:
   [200]	100 responses
 ```
 
-There are no connection limits, and so all 100 requests succeed.
+There are no connection limits, and so all 100 requests succeed. 
 
-Next, we apply a limit of 5 connections.
+Next, we apply a limit of 5 connections. 
 
 {{< tabpane text=true >}}
 {{% tab header="Apply from stdin" %}}
@@ -74,7 +74,7 @@ spec:
       name: eg
   connection:
     connectionLimit:
-      value: 5
+      value: 5    
 EOF
 ```
 
@@ -96,7 +96,7 @@ spec:
       name: eg
   connection:
     connectionLimit:
-      value: 5
+      value: 5    
 ```
 
 {{% /tab %}}
@@ -116,7 +116,7 @@ Summary:
   Average:	0.0088 secs
   Requests/sec:	9.0640
 
-[...]
+[...] 
 
 Status code distribution:
   [200]	50 responses
@@ -125,11 +125,11 @@ Error distribution:
   [50]	Get "http://localhost:8888/get": EOF
 ```
 
-With the new connection limit, only 5 of 10 connections are established, and so only 50 requests succeed.
+With the new connection limit, only 5 of 10 connections are established, and so only 50 requests succeed.  
 
 
 [Client Traffic Policy]: ../../../api/extension_types#clienttrafficpolicy
 [Hey project]: https://github.com/rakyll/hey
 [connection limit]: https://www.envoyproxy.io/docs/envoy/latest/configuration/listeners/network_filters/connection_limit_filter
-[listener]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1.Listener
-[gateway]:  https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.Gateway
+[listener]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.Listener
+[gateway]:  https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.Gateway

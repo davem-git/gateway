@@ -10,11 +10,12 @@ http:
   routes:
   - name: "first-route"
     traffic:
+      name: "test-policy-1/test-namespace"
       rateLimit:
         global:
+          shared: false
           rules:
-          - name: "test-namespace/test-policy-1/rule/0"
-            headerMatches:
+          - headerMatches:
             - name: "x-user-id"
               exact: "one"
             - name: "x-user-id"
@@ -22,7 +23,6 @@ http:
             limit:
               requests: 5
               unit: second
-            shared: false
     pathMatch:
       exact: "foo/bar"
     destination:

@@ -5,17 +5,11 @@
 
 package egctl
 
-import (
-	"github.com/go-logr/logr"
-	"github.com/spf13/cobra"
-	"k8s.io/klog/v2"
-)
+import "github.com/spf13/cobra"
 
 // GetRootCommand returns the root cobra command to be executed
 // by egctl main.
 func GetRootCommand() *cobra.Command {
-	// discard klog logger
-	klog.SetLogger(logr.Discard())
 	rootCmd := &cobra.Command{
 		Use:               "egctl",
 		Long:              "A command line utility for operating Envoy Gateway",

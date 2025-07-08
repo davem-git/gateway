@@ -68,7 +68,6 @@ backendTrafficPolicies:
     metadata:
       namespace: envoy-gateway
       name: policy-for-gateway
-      generation: 10
     spec:
       targetRef:
         group: gateway.networking.k8s.io
@@ -85,7 +84,6 @@ backendTrafficPolicies:
     metadata:
       namespace: default
       name: policy-for-route
-      generation: 20
     spec:
       targetRef:
         group: gateway.networking.k8s.io

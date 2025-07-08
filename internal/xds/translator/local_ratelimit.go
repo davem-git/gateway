@@ -117,7 +117,7 @@ func (*localRateLimit) patchResources(*types.ResourceVersionTable,
 	return nil
 }
 
-func (*localRateLimit) patchRoute(route *routev3.Route, irRoute *ir.HTTPRoute, httpListener *ir.HTTPListener) error {
+func (*localRateLimit) patchRoute(route *routev3.Route, irRoute *ir.HTTPRoute) error {
 	routeAction := route.GetRoute()
 
 	// Return early if no rate limit config exists.
@@ -168,8 +168,7 @@ func (*localRateLimit) patchRoute(route *routev3.Route, irRoute *ir.HTTPRoute, h
 				Denominator: typev3.FractionalPercent_HUNDRED,
 			},
 		},
-		EnableXRatelimitHeaders: rlv3.XRateLimitHeadersRFCVersion_DRAFT_VERSION_03,
-		Descriptors:             descriptors,
+		Descriptors: descriptors,
 		// By setting AlwaysConsumeDefaultTokenBucket to false, the descriptors
 		// won't consume the default token bucket. This means that a request only
 		// counts towards the default token bucket if it does not match any of the
@@ -177,9 +176,6 @@ func (*localRateLimit) patchRoute(route *routev3.Route, irRoute *ir.HTTPRoute, h
 		AlwaysConsumeDefaultTokenBucket: &wrapperspb.BoolValue{
 			Value: false,
 		},
-	}
-	if httpListener.Headers != nil && httpListener.Headers.DisableRateLimitHeaders {
-		localRl.EnableXRatelimitHeaders = rlv3.XRateLimitHeadersRFCVersion_OFF
 	}
 
 	localRlAny, err := anypb.New(localRl)

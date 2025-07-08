@@ -5,7 +5,7 @@ title: "Routing outside Kubernetes"
 Routing to endpoints outside the Kubernetes cluster where Envoy Gateway and its corresponding Envoy Proxy fleet is
 running is a common use case. This can be achieved by:
 - defining FQDN addresses in a [EndpointSlice][] (covered in this document)
-- defining a [Backend][] resource, as described in the [Backend Task][].
+- defining a [Backend][] resource, as described in the [Backend Task][]. 
 
 ## Installation
 
@@ -39,7 +39,7 @@ metadata:
   name: httpbin
   namespace: default
   labels:
-    kubernetes.io/service-name: httpbin
+    kubernetes.io/service-name: httpbin 
 addressType: FQDN
 ports:
 - name: https
@@ -75,7 +75,7 @@ metadata:
   name: httpbin
   namespace: default
   labels:
-    kubernetes.io/service-name: httpbin
+    kubernetes.io/service-name: httpbin 
 addressType: FQDN
 ports:
 - name: https
@@ -114,10 +114,10 @@ cat <<EOF | kubectl apply -f -
 apiVersion: gateway.networking.k8s.io/v1alpha2
 kind: TLSRoute
 metadata:
-  name: httpbin
+  name: httpbin 
 spec:
   parentRefs:
-  - name: eg
+  - name: eg 
     sectionName: tls
   rules:
   - backendRefs:
@@ -135,10 +135,10 @@ Save and apply the following resource to your cluster:
 apiVersion: gateway.networking.k8s.io/v1alpha2
 kind: TLSRoute
 metadata:
-  name: httpbin
+  name: httpbin 
 spec:
   parentRefs:
-  - name: eg
+  - name: eg 
     sectionName: tls
   rules:
   - backendRefs:
@@ -165,4 +165,4 @@ curl -I -HHost:httpbin.org --resolve "httpbin.org:443:${GATEWAY_HOST}" https://h
 [Backend]: ../../api/extension_types#backend
 [Backend Task]: ./backend.md
 [Gateway]: https://gateway-api.sigs.k8s.io/api-types/gateway/
-[TLSRoute]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.TLSRoute
+[TLSRoute]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.TLSRoute

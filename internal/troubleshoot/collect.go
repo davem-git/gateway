@@ -16,12 +16,7 @@ import (
 	"github.com/envoyproxy/gateway/internal/troubleshoot/collect"
 )
 
-type CollectOptions struct {
-	CollectedNamespaces []string
-	BundlePath          string
-}
-
-func CollectResult(ctx context.Context, restConfig *rest.Config, opts CollectOptions) tbcollect.CollectorResult {
+func CollectResult(ctx context.Context, restConfig *rest.Config, bundlePath, egNamespace string) tbcollect.CollectorResult {
 	var result tbcollect.CollectorResult
 
 	progressChan := make(chan interface{})
@@ -38,44 +33,40 @@ func CollectResult(ctx context.Context, restConfig *rest.Config, opts CollectOpt
 		// Collect the custom resources from Gateway API and EG
 		collect.CustomResource{
 			ClientConfig: restConfig,
-			BundlePath:   opts.BundlePath,
+			BundlePath:   bundlePath,
 			IncludeGroups: []string{
 				"gateway.envoyproxy.io",
 				"gateway.networking.k8s.io",
 			},
 		},
-	}
-	for _, ns := range opts.CollectedNamespaces {
-		bundlePath := opts.BundlePath
-		collectors = append(collectors,
-			// Collect resources from EnvoyGateway system namespace
-			collect.EnvoyGatewayResource{
-				ClientConfig: restConfig,
-				BundlePath:   bundlePath,
-				Namespace:    ns,
+		// Collect resources from EnvoyGateway system namespace
+		collect.EnvoyGatewayResource{
+			ClientConfig: restConfig,
+			BundlePath:   bundlePath,
+			Namespace:    egNamespace,
+		},
+		// Collect logs from EnvoyGateway system namespace
+		&tbcollect.CollectLogs{
+			Collector: &troubleshootv1b2.Logs{
+				Name:      "pod-logs",
+				Namespace: egNamespace,
 			},
-			// Collect logs from EnvoyGateway system namespace
-			&tbcollect.CollectLogs{
-				Collector: &troubleshootv1b2.Logs{
-					Name:      "pod-logs",
-					Namespace: ns,
-				},
-				ClientConfig: restConfig,
-				BundlePath:   bundlePath,
-				Context:      ctx,
-			},
-			// Collect prometheus metrics from EnvoyGateway system namespace
-			collect.PrometheusMetric{
-				BundlePath:   bundlePath,
-				ClientConfig: restConfig,
-				Namespace:    ns,
-			},
-			// Collect config dump from EnvoyGateway system namespace
-			collect.ConfigDump{
-				BundlePath:   bundlePath,
-				ClientConfig: restConfig,
-				Namespace:    ns,
-			})
+			ClientConfig: restConfig,
+			BundlePath:   bundlePath,
+			Context:      ctx,
+		},
+		// Collect prometheus metrics from EnvoyGateway system namespace
+		collect.PrometheusMetric{
+			BundlePath:   bundlePath,
+			ClientConfig: restConfig,
+			Namespace:    egNamespace,
+		},
+		// Collect config dump from EnvoyGateway system namespace
+		collect.ConfigDump{
+			BundlePath:   bundlePath,
+			ClientConfig: restConfig,
+			Namespace:    egNamespace,
+		},
 	}
 	total := len(collectors)
 	allCollectedData := make(map[string][]byte)

@@ -137,7 +137,7 @@ func TestBuildHTTPProtocolUpgradeConfig(t *testing.T) {
 	cases := []struct {
 		name     string
 		cfgs     []*egv1a1.ProtocolUpgradeConfig
-		expected []ir.HTTPUpgradeConfig
+		expected []string
 	}{
 		{
 			name:     "empty",
@@ -151,9 +151,7 @@ func TestBuildHTTPProtocolUpgradeConfig(t *testing.T) {
 					Type: "spdy/3.1",
 				},
 			},
-			expected: []ir.HTTPUpgradeConfig{
-				{Type: "spdy/3.1"},
-			},
+			expected: []string{"spdy/3.1"},
 		},
 		{
 			name: "websockets-spdy",
@@ -165,10 +163,7 @@ func TestBuildHTTPProtocolUpgradeConfig(t *testing.T) {
 					Type: "spdy/3.1",
 				},
 			},
-			expected: []ir.HTTPUpgradeConfig{
-				{Type: "websockets"},
-				{Type: "spdy/3.1"},
-			},
+			expected: []string{"websockets", "spdy/3.1"},
 		},
 		{
 			name: "spdy-websockets",
@@ -180,10 +175,7 @@ func TestBuildHTTPProtocolUpgradeConfig(t *testing.T) {
 					Type: "websockets",
 				},
 			},
-			expected: []ir.HTTPUpgradeConfig{
-				{Type: "spdy/3.1"},
-				{Type: "websockets"},
-			},
+			expected: []string{"spdy/3.1", "websockets"},
 		},
 	}
 

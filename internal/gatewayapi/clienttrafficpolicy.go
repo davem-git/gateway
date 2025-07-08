@@ -159,7 +159,7 @@ func (t *Translator) ProcessClientTrafficPolicies(
 				}
 
 				// Set Accepted condition if it is unset
-				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName, policy.Generation)
+				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName)
 			}
 		}
 	}
@@ -277,7 +277,7 @@ func (t *Translator) ProcessClientTrafficPolicies(
 				}
 
 				// Set Accepted condition if it is unset
-				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName, policy.Generation)
+				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName)
 			}
 		}
 	}
@@ -303,13 +303,22 @@ func resolveCTPolicyTargetRef(
 	}
 
 	// If sectionName is set, make sure its valid
-	if targetRef.SectionName != nil {
-		if err := validateGatewayListenerSectionName(
-			*targetRef.SectionName,
-			key,
-			gateway.listeners,
-		); err != nil {
-			return gateway.GatewayContext, err
+	sectionName := targetRef.SectionName
+	if sectionName != nil {
+		found := false
+		for _, l := range gateway.listeners {
+			if l.Name == *sectionName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			message := fmt.Sprintf("No section name %s found for %s", *sectionName, key.String())
+
+			return gateway.GatewayContext, &status.PolicyResolveError{
+				Reason:  gwapiv1a2.PolicyReasonInvalid,
+				Message: message,
+			}
 		}
 	}
 
@@ -825,7 +834,7 @@ func (t *Translator) buildListenerTLSParameters(policy *egv1a1.ClientTrafficPoli
 					return irTLSConfig, err
 				}
 
-				secretBytes, ok := getCaCertFromSecret(secret)
+				secretBytes, ok := secret.Data[caCertKey]
 				if !ok || len(secretBytes) == 0 {
 					return irTLSConfig, fmt.Errorf(
 						"caCertificateRef not found in secret %s", caCertRef.Name)
@@ -844,7 +853,7 @@ func (t *Translator) buildListenerTLSParameters(policy *egv1a1.ClientTrafficPoli
 					return irTLSConfig, err
 				}
 
-				configMapBytes, ok := getCaCertFromConfigMap(configMap)
+				configMapBytes, ok := configMap.Data[caCertKey]
 				if !ok || len(configMapBytes) == 0 {
 					return irTLSConfig, fmt.Errorf(
 						"caCertificateRef not found in configMap %s", caCertRef.Name)
@@ -865,7 +874,6 @@ func (t *Translator) buildListenerTLSParameters(policy *egv1a1.ClientTrafficPoli
 		if len(irCACert.Certificate) > 0 {
 			irTLSConfig.CACertificate = irCACert
 			irTLSConfig.RequireClientCertificate = !tlsParams.ClientValidation.Optional
-			setTLSClientValidationContext(tlsParams.ClientValidation, irTLSConfig)
 		}
 	}
 
@@ -879,32 +887,6 @@ func (t *Translator) buildListenerTLSParameters(policy *egv1a1.ClientTrafficPoli
 	}
 
 	return irTLSConfig, nil
-}
-
-func setTLSClientValidationContext(tlsClientValidation *egv1a1.ClientValidationContext, irTLSConfig *ir.TLSConfig) {
-	if len(tlsClientValidation.SPKIHashes) > 0 {
-		irTLSConfig.VerifyCertificateSpki = append(irTLSConfig.VerifyCertificateSpki, tlsClientValidation.SPKIHashes...)
-	}
-	if len(tlsClientValidation.CertificateHashes) > 0 {
-		irTLSConfig.VerifyCertificateHash = append(irTLSConfig.VerifyCertificateHash, tlsClientValidation.CertificateHashes...)
-	}
-	if tlsClientValidation.SubjectAltNames != nil {
-		for _, match := range tlsClientValidation.SubjectAltNames.DNSNames {
-			irTLSConfig.MatchTypedSubjectAltNames = append(irTLSConfig.MatchTypedSubjectAltNames, irStringMatch("DNS", match))
-		}
-		for _, match := range tlsClientValidation.SubjectAltNames.EmailAddresses {
-			irTLSConfig.MatchTypedSubjectAltNames = append(irTLSConfig.MatchTypedSubjectAltNames, irStringMatch("EMAIL", match))
-		}
-		for _, match := range tlsClientValidation.SubjectAltNames.IPAddresses {
-			irTLSConfig.MatchTypedSubjectAltNames = append(irTLSConfig.MatchTypedSubjectAltNames, irStringMatch("IP_ADDRESS", match))
-		}
-		for _, match := range tlsClientValidation.SubjectAltNames.URIs {
-			irTLSConfig.MatchTypedSubjectAltNames = append(irTLSConfig.MatchTypedSubjectAltNames, irStringMatch("URI", match))
-		}
-		for _, otherName := range tlsClientValidation.SubjectAltNames.OtherNames {
-			irTLSConfig.MatchTypedSubjectAltNames = append(irTLSConfig.MatchTypedSubjectAltNames, irStringMatch(otherName.Oid, otherName.StringMatch))
-		}
-	}
 }
 
 func buildConnection(connection *egv1a1.ClientConnection) (*ir.ClientConnection, error) {

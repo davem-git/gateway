@@ -52,8 +52,6 @@ func loadKubernetesYAMLToResources(input []byte, addMissingResources bool) (*Res
 	providedNamespaceMap := sets.New[string]()
 	requiredNamespaceMap := sets.New[string]()
 	combinedScheme := envoygateway.GetScheme()
-	defaulter := GetGatewaySchemaDefaulter()
-	validator := GetDefaultValidator()
 
 	if err := IterYAMLBytes(input, func(yamlByte []byte) error {
 		var obj map[string]interface{}
@@ -72,21 +70,13 @@ func loadKubernetesYAMLToResources(input []byte, addMissingResources bool) (*Res
 
 		// Perform local validation and apply default values for gateway-api related resources only.
 		if gvk.Group == egv1a1.GroupName || gvk.Group == gwapiv1.GroupName {
-			if validator != nil {
-				if err = validator.Validate(yamlByte); err != nil {
-					return fmt.Errorf("local validation error: %w", err)
-				}
-			} else {
-				return fmt.Errorf("failed to init validator")
+			if err = defaultValidator.Validate(yamlByte); err != nil {
+				return fmt.Errorf("local validation error: %w", err)
 			}
 
-			if defaulter != nil {
-				un, err = defaulter.ApplyDefault(un)
-				if err != nil {
-					return fmt.Errorf("failed to apply default values for %s/%s: %w", un.GetKind(), un.GetName(), err)
-				}
-			} else {
-				return fmt.Errorf("failed to init defaulter")
+			un, err = gatewaySchemaDefaulter.ApplyDefault(un)
+			if err != nil {
+				return fmt.Errorf("failed to apply default values for %s/%s: %w", un.GetKind(), un.GetName(), err)
 			}
 		}
 

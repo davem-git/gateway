@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/envoyproxy/gateway/internal/gatewayapi"
-	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 	"github.com/envoyproxy/gateway/internal/infrastructure/kubernetes/proxy"
 	"github.com/envoyproxy/gateway/internal/ir"
 )
@@ -28,23 +27,16 @@ func TestDeleteProxyService(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
 			kube := newTestInfra(t)
-			require.NoError(t, setupOwnerReferenceResources(ctx, kube.Client))
-
 			infra := ir.NewInfra()
+
 			infra.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNamespaceLabel] = "default"
 			infra.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNameLabel] = infra.Proxy.Name
-			infra.Proxy.GetProxyMetadata().OwnerReference = &ir.ResourceMetadata{
-				Kind: resource.KindGatewayClass,
-				Name: testGatewayClass,
-			}
-			r, err := proxy.NewResourceRender(ctx, kube, infra)
-			require.NoError(t, err)
-			err = kube.createOrUpdateService(ctx, r)
+			r := proxy.NewResourceRender(kube.ControllerNamespace, kube.ControllerNamespace, kube.DNSDomain, infra.GetProxyInfra(), kube.EnvoyGateway)
+			err := kube.createOrUpdateService(context.Background(), r)
 			require.NoError(t, err)
 
-			err = kube.deleteService(ctx, r)
+			err = kube.deleteService(context.Background(), r)
 			require.NoError(t, err)
 		})
 	}

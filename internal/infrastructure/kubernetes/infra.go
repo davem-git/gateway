@@ -23,10 +23,9 @@ import (
 	"github.com/envoyproxy/gateway/internal/logging"
 )
 
-var (
-	_ ResourceRender = &proxy.ResourceRender{}
-	_ ResourceRender = &ratelimit.ResourceRender{}
-)
+var _ ResourceRender = &proxy.ResourceRender{}
+
+var _ ResourceRender = &ratelimit.ResourceRender{}
 
 // ResourceRender renders Kubernetes infrastructure resources
 // based on Infra IR resources.

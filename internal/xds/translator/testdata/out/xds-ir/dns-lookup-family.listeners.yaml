@@ -58,7 +58,7 @@
         values:
         - key: k8s.namespace.name
           value:
-            stringValue: '%ENVIRONMENT(ENVOY_POD_NAMESPACE)%'
+            stringValue: '%ENVIRONMENT(ENVOY_GATEWAY_NAMESPACE)%'
         - key: k8s.pod.name
           value:
             stringValue: '%ENVIRONMENT(ENVOY_POD_NAME)%'
@@ -101,7 +101,7 @@
               values:
               - key: k8s.namespace.name
                 value:
-                  stringValue: '%ENVIRONMENT(ENVOY_POD_NAMESPACE)%'
+                  stringValue: '%ENVIRONMENT(ENVOY_GATEWAY_NAMESPACE)%'
               - key: k8s.pod.name
                 value:
                   stringValue: '%ENVIRONMENT(ENVOY_POD_NAME)%'
@@ -176,6 +176,5 @@
         statPrefix: http-10080
         useRemoteAddress: true
     name: envoy-gateway/gateway-1/http
-  maxConnectionsToAcceptPerSocketEvent: 1
   name: envoy-gateway/gateway-1/http
   perConnectionBufferLimitBytes: 32768

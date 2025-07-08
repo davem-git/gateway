@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/gateway-api/conformance/utils/http"
 	"sigs.k8s.io/gateway-api/conformance/utils/kubernetes"
 	"sigs.k8s.io/gateway-api/conformance/utils/suite"
-	"sigs.k8s.io/gateway-api/conformance/utils/tlog"
 )
 
 func init() {
@@ -41,18 +40,6 @@ var BackendUpgradeTest = suite.ConformanceTest{
 			routeNN := types.NamespacedName{Name: "http-backend-upgrade", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
 			gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
-
-			// Make sure the backend is healthy before starting the test
-			http.MakeRequestAndExpectEventuallyConsistentResponse(t, suite.RoundTripper, suite.TimeoutConfig, gwAddr, http.ExpectedResponse{
-				Request: http.Request{
-					Path: "/backend-upgrade",
-				},
-				Response: http.Response{
-					StatusCode: 200,
-				},
-				Namespace: ns,
-			})
-
 			reqURL := url.URL{Scheme: "http", Host: http.CalculateHost(t, gwAddr, "http"), Path: "/backend-upgrade"}
 
 			// get deployment to restart
@@ -66,23 +53,24 @@ var BackendUpgradeTest = suite.ConformanceTest{
 			// will contain indication on success or failure of load test
 			loadSuccess := make(chan bool)
 
-			tlog.Logf(t, "Starting load generation")
+			t.Log("Starting load generation")
 			// Run load async and continue to restart deployment
 			go runLoadAndWait(t, suite.TimeoutConfig, loadSuccess, aborter, reqURL.String())
 
-			tlog.Logf(t, "Restarting deployment")
+			t.Log("Restarting deployment")
 			err = restartDeploymentAndWaitForNewPods(t, suite.TimeoutConfig, suite.Client, dp)
 
-			tlog.Logf(t, "Stopping load generation and collecting results")
+			t.Log("Stopping load generation and collecting results")
 			aborter.Abort(false) // abort the load either way
+
 			if err != nil {
-				tlog.Errorf(t, "Failed to restart deployment")
+				t.Errorf("Failed to restart deployment")
 			}
 
 			// Wait for the goroutine to finish
 			result := <-loadSuccess
 			if !result {
-				tlog.Errorf(t, "Load test failed")
+				t.Errorf("Load test failed")
 			}
 		})
 	},

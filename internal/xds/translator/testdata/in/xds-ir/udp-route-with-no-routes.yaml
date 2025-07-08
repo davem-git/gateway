@@ -1,4 +1,0 @@
-udp:
-- name: "udp-route-with-no-routes"
-  address: "::"
-  port: 10080

@@ -143,11 +143,6 @@ func (logging *ProxyLogging) GetEnvoyProxyComponentLevel() string {
 		}
 	}
 
-	if len(args) == 0 {
-		// use "misc:error" as default
-		args = []string{"misc:error"}
-	}
-
 	sort.Strings(args)
 
 	return strings.Join(args, ",")

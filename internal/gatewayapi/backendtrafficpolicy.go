@@ -226,7 +226,7 @@ func (t *Translator) ProcessBackendTrafficPolicies(resources *resource.Resources
 				}
 
 				// Set Accepted condition if it is unset
-				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName, policy.Generation)
+				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName)
 			}
 		}
 	}
@@ -280,7 +280,7 @@ func (t *Translator) ProcessBackendTrafficPolicies(resources *resource.Resources
 				}
 
 				// Set Accepted condition if it is unset
-				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName, policy.Generation)
+				status.SetAcceptedForPolicyAncestors(&policy.Status, ancestorRefs, t.GatewayControllerName)
 
 				// Check if this policy is overridden by other policies targeting at
 				// route level
@@ -429,47 +429,13 @@ func (t *Translator) translateBackendTrafficPolicyForRouteWithMerge(
 	if err != nil {
 		return fmt.Errorf("error merging policies: %w", err)
 	}
-
-	// Build traffic features from the merged policy
 	tf, errs := t.buildTrafficFeatures(mergedPolicy, resources)
 	if tf == nil {
 		// should not happen
 		return nil
 	}
 
-	// Since GlobalRateLimit merge relies on IR auto-generated key: (<policy-ns>/<policy-name>/rule/<rule-index>)
-	// We can't simply merge the BTP's using utils.Merge() we need to specifically merge the GlobalRateLimit.Rules using IR fields.
-	// Since ir.TrafficFeatures is not a built-in Kubernetes API object with defined merging strategies and it does not support a deep merge (for lists/maps).
-
-	// Handle rate limit merging cases:
-	// 1. Both policies have rate limits - merge them
-	// 2. Only gateway policy has rate limits - preserve gateway policy's rule names
-	// 3. Only route policy has rate limits - use route policy's rule names (default behavior)
-	if policy.Spec.RateLimit != nil && gwPolicy.Spec.RateLimit != nil {
-		// Case 1: Both policies have rate limits - merge them
-		tfGW, _ := t.buildTrafficFeatures(gwPolicy, resources)
-		tfRoute, _ := t.buildTrafficFeatures(policy, resources)
-
-		if tfGW != nil && tfRoute != nil &&
-			tfGW.RateLimit != nil && tfRoute.RateLimit != nil {
-
-			mergedRL, err := utils.Merge(tfGW.RateLimit, tfRoute.RateLimit, *policy.Spec.MergeType)
-			if err != nil {
-				return fmt.Errorf("error merging rate limits: %w", err)
-			}
-			// Replace the rate limit in the merged features if successful
-			tf.RateLimit = mergedRL
-		}
-	} else if policy.Spec.RateLimit == nil && gwPolicy.Spec.RateLimit != nil {
-		// Case 2: Only gateway policy has rate limits - preserve gateway policy's rule names
-		tfGW, _ := t.buildTrafficFeatures(gwPolicy, resources)
-		if tfGW != nil && tfGW.RateLimit != nil {
-			// Use the gateway policy's rate limit with its original rule names
-			tf.RateLimit = tfGW.RateLimit
-		}
-	}
-	// Case 3: Only route policy has rate limits or neither has rate limits - use default behavior (tf already built from merged policy)
-
+	// Apply IR to relevant gateway routes
 	x, ok := xdsIR[t.IRKey(gatewayNN)]
 	if !ok {
 		// should not happen.
@@ -523,6 +489,7 @@ func applyTrafficFeatureToRoute(route RouteContext,
 				}
 
 				r.Traffic = tf.DeepCopy()
+				r.Traffic.Name = irTrafficName(policy)
 
 				if localTo, err := buildClusterSettingsTimeout(policy.Spec.ClusterSettings); err == nil {
 					r.Traffic.Timeout = localTo
@@ -564,7 +531,7 @@ func (t *Translator) buildTrafficFeatures(policy *egv1a1.BackendTrafficPolicy, r
 		ro          *ir.ResponseOverride
 		rb          *ir.RequestBuffer
 		cp          []*ir.Compression
-		httpUpgrade []ir.HTTPUpgradeConfig
+		httpUpgrade []string
 		err, errs   error
 	)
 
@@ -728,6 +695,7 @@ func (t *Translator) translateBackendTrafficPolicyForGateway(
 			}
 
 			r.Traffic = tf.DeepCopy()
+			r.Traffic.Name = irTrafficName(policy)
 
 			// Update the Host field in HealthCheck, now that we have access to the Route Hostname.
 			r.Traffic.HealthCheck.SetHTTPHostIfAbsent(r.Hostname)
@@ -801,7 +769,7 @@ func (t *Translator) buildLocalRateLimit(policy *egv1a1.BackendTrafficPolicy) (*
 	var err error
 	var irRule *ir.RateLimitRule
 	irRules := make([]*ir.RateLimitRule, 0)
-	for i, rule := range local.Rules {
+	for _, rule := range local.Rules {
 		// We don't process the rule without clientSelectors here because it's
 		// previously used as the default route-level limit.
 		if len(rule.ClientSelectors) == 0 {
@@ -812,8 +780,6 @@ func (t *Translator) buildLocalRateLimit(policy *egv1a1.BackendTrafficPolicy) (*
 		if err != nil {
 			return nil, err
 		}
-		// Set the Name field as <policy-ns>/<policy-name>/rule/<rule-index>
-		irRule.Name = irRuleName(policy.Namespace, policy.Name, i)
 		irRules = append(irRules, irRule)
 	}
 
@@ -838,7 +804,8 @@ func (t *Translator) buildGlobalRateLimit(policy *egv1a1.BackendTrafficPolicy) (
 	global := policy.Spec.RateLimit.Global
 	rateLimit := &ir.RateLimit{
 		Global: &ir.GlobalRateLimit{
-			Rules: make([]*ir.RateLimitRule, len(global.Rules)),
+			Rules:  make([]*ir.RateLimitRule, len(global.Rules)),
+			Shared: global.Shared,
 		},
 	}
 
@@ -849,8 +816,6 @@ func (t *Translator) buildGlobalRateLimit(policy *egv1a1.BackendTrafficPolicy) (
 		if err != nil {
 			return nil, err
 		}
-		// Set the Name field as <policy-ns>/<policy-name>/rule/<rule-index>
-		irRules[i].Name = irRuleName(policy.Namespace, policy.Name, i)
 	}
 
 	return rateLimit, nil
@@ -863,7 +828,6 @@ func buildRateLimitRule(rule egv1a1.RateLimitRule) (*ir.RateLimitRule, error) {
 			Unit:     ir.RateLimitUnit(rule.Limit.Unit),
 		},
 		HeaderMatches: make([]*ir.StringMatch, 0),
-		Shared:        rule.Shared,
 	}
 
 	for _, match := range rule.ClientSelectors {
@@ -1051,52 +1015,25 @@ func buildResponseOverride(policy *egv1a1.BackendTrafficPolicy, resources *resou
 			}
 		}
 
-		if ro.Redirect != nil {
-			redirect := &ir.Redirect{
-				Scheme: ro.Redirect.Scheme,
-			}
-			if ro.Redirect.Path != nil {
-				redirect.Path = &ir.HTTPPathModifier{
-					FullReplace:        ro.Redirect.Path.ReplaceFullPath,
-					PrefixMatchReplace: ro.Redirect.Path.ReplacePrefixMatch,
-				}
-			}
-			if ro.Redirect.Hostname != nil {
-				redirect.Hostname = ptr.To(string(*ro.Redirect.Hostname))
-			}
-			if ro.Redirect.Port != nil {
-				redirect.Port = ptr.To(uint32(*ro.Redirect.Port))
-			}
-			if ro.Redirect.StatusCode != nil {
-				redirect.StatusCode = ptr.To(int32(*ro.Redirect.StatusCode))
-			}
-
-			rules = append(rules, ir.ResponseOverrideRule{
-				Name:     defaultResponseOverrideRuleName(policy, index),
-				Match:    match,
-				Redirect: redirect,
-			})
-		} else {
-			response := &ir.CustomResponse{
-				ContentType: ro.Response.ContentType,
-			}
-
-			if ro.Response.StatusCode != nil {
-				response.StatusCode = ptr.To(uint32(*ro.Response.StatusCode))
-			}
-
-			var err error
-			response.Body, err = getCustomResponseBody(ro.Response.Body, resources, policy.Namespace)
-			if err != nil {
-				return nil, err
-			}
-
-			rules = append(rules, ir.ResponseOverrideRule{
-				Name:     defaultResponseOverrideRuleName(policy, index),
-				Match:    match,
-				Response: response,
-			})
+		response := ir.CustomResponse{
+			ContentType: ro.Response.ContentType,
 		}
+
+		if ro.Response.StatusCode != nil {
+			response.StatusCode = ptr.To(uint32(*ro.Response.StatusCode))
+		}
+
+		var err error
+		response.Body, err = getCustomResponseBody(ro.Response.Body, resources, policy.Namespace)
+		if err != nil {
+			return nil, err
+		}
+
+		rules = append(rules, ir.ResponseOverrideRule{
+			Name:     defaultResponseOverrideRuleName(policy, index),
+			Match:    match,
+			Response: response,
+		})
 	}
 	return &ir.ResponseOverride{
 		Name:  irConfigName(policy),
@@ -1174,22 +1111,14 @@ func buildCompression(compression []*egv1a1.Compression) []*ir.Compression {
 	return irCompression
 }
 
-func buildHTTPProtocolUpgradeConfig(cfgs []*egv1a1.ProtocolUpgradeConfig) []ir.HTTPUpgradeConfig {
+func buildHTTPProtocolUpgradeConfig(cfgs []*egv1a1.ProtocolUpgradeConfig) []string {
 	if len(cfgs) == 0 {
 		return nil
 	}
 
-	result := make([]ir.HTTPUpgradeConfig, 0, len(cfgs))
+	result := make([]string, 0, len(cfgs))
 	for _, cfg := range cfgs {
-		upgrade := ir.HTTPUpgradeConfig{
-			Type: cfg.Type,
-		}
-		if cfg.Connect != nil {
-			upgrade.Connect = &ir.ConnectConfig{
-				Terminate: ptr.Deref(cfg.Connect.Terminate, false),
-			}
-		}
-		result = append(result, upgrade)
+		result = append(result, cfg.Type)
 	}
 
 	return result

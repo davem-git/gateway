@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/envoyproxy/gateway/internal/logging"
+	"github.com/envoyproxy/gateway/internal/xds/cache"
 )
 
 // JWTAuthInterceptor verifies Kubernetes Service Account JWT tokens in gRPC requests.
@@ -23,16 +23,16 @@ type JWTAuthInterceptor struct {
 	clientset *kubernetes.Clientset
 	issuer    string
 	audience  string
-	logger    logging.Logger
+	cache     cache.SnapshotCacheWithCallbacks
 }
 
 // NewJWTAuthInterceptor initializes a new JWTAuthInterceptor.
-func NewJWTAuthInterceptor(logger logging.Logger, clientset *kubernetes.Clientset, issuer, audience string) *JWTAuthInterceptor {
+func NewJWTAuthInterceptor(clientset *kubernetes.Clientset, issuer, audience string, cache cache.SnapshotCacheWithCallbacks) *JWTAuthInterceptor {
 	return &JWTAuthInterceptor{
 		clientset: clientset,
 		issuer:    issuer,
 		audience:  audience,
-		logger:    logger.WithName("jwt-auth-interceptor"),
+		cache:     cache,
 	}
 }
 
@@ -68,7 +68,6 @@ func (w *wrappedStream) RecvMsg(m any) error {
 			token := strings.TrimPrefix(authHeader[0], "Bearer ")
 
 			if err := w.interceptor.validateKubeJWT(w.ctx, token, nodeID); err != nil {
-				w.interceptor.logger.Error(err, "failed to validate token")
 				return fmt.Errorf("failed to validate token: %w", err)
 			}
 

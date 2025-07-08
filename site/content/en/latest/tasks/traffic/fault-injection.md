@@ -290,7 +290,7 @@ Verify the GRPCRoute configuration and status:
 kubectl get grpcroute/yages -o yaml
 ```
 
-Verify the BackendTrafficPolicy configuration:
+Verify the SecurityPolicy configuration:
 
 ```shell
 kubectl get backendtrafficpolicy/fault-injection-abort -o yaml

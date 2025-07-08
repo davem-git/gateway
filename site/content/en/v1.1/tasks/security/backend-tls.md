@@ -375,7 +375,7 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   backendTLS:
-    minVersion: "1.3"
+    MinVersion: "1.3"
 ```
 
 {{% /tab %}}

@@ -7,7 +7,7 @@ The [HTTPRouteTimeouts][] resource allows users to configure request timeouts fo
 This task shows you how to configure timeouts.
 
 The [HTTPRouteTimeouts][] supports two kinds of timeouts:
-- **request**: Request specifies the maximum duration for a gateway to respond to an HTTP request.
+- **request**: Request specifies the maximum duration for a gateway to respond to an HTTP request. 
 - **backendRequest**: BackendRequest specifies a timeout for an individual request from the gateway to a backend.
 
 __Note:__  The Request duration must be >= BackendRequest duration
@@ -194,5 +194,5 @@ curl --header "Host: timeout.example.com" http://${GATEWAY_HOST}/?delay=3s  -v
 upstream request timeout
 ```
 
-[HTTPRouteTimeouts]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1.HTTPRouteTimeouts
-[HTTPRouteRule]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1.HTTPRouteRule
+[HTTPRouteTimeouts]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPRouteTimeouts
+[HTTPRouteRule]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPRouteRule

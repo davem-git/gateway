@@ -473,10 +473,10 @@ Content-Length: 267
  "ingress": "",
  "service": "bar",
  "pod": "backend-2-98fcff498-hcmgb"
-}
+}                                            
 ```
 
 You can see that the traffic routing to `bar` service when sending request to `8089` port.
 
-[TCPRoute]: https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.TCPRoute
+[TCPRoute]: https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.TCPRoute
 [Gateway API documentation]: https://gateway-api.sigs.k8s.io/

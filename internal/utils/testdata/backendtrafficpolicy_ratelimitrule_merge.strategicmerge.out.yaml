@@ -1,7 +1,7 @@
 kind: BackendTrafficPolicy
 metadata:
   creationTimestamp: null
-  name: original-2
+  name: original
 spec:
   rateLimit:
     global:
@@ -23,7 +23,25 @@ spec:
         limit:
           requests: 21
           unit: Hour
-        shared: false
+        name: two
+      - clientSelectors:
+        - headers:
+          - name: x-user-id
+            type: Exact
+            value: one
+        cost:
+          request:
+            from: Number
+            number: 0
+          response:
+            from: Metadata
+            metadata:
+              key: request_cost_set_by_ext_proc
+              namespace: io.envoyproxy.gateway.e2e
+        limit:
+          requests: 21
+          unit: Hour
+        name: one
     type: Global
 status:
   ancestors: null

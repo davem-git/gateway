@@ -3,7 +3,6 @@ envoyExtensionPolicies:
   kind: EnvoyExtensionPolicy
   metadata:
     creationTimestamp: null
-    generation: 20
     name: policy-for-http-route
     namespace: default
   spec:
@@ -26,7 +25,6 @@ envoyExtensionPolicies:
       conditions:
       - lastTransitionTime: null
         message: Policy has been accepted.
-        observedGeneration: 20
         reason: Accepted
         status: "True"
         type: Accepted
@@ -35,7 +33,6 @@ envoyExtensionPolicies:
   kind: EnvoyExtensionPolicy
   metadata:
     creationTimestamp: null
-    generation: 10
     name: policy-for-gateway
     namespace: envoy-gateway
   spec:
@@ -57,14 +54,12 @@ envoyExtensionPolicies:
       conditions:
       - lastTransitionTime: null
         message: Policy has been accepted.
-        observedGeneration: 10
         reason: Accepted
         status: "True"
         type: Accepted
       - lastTransitionTime: null
         message: 'This policy is being overridden by other envoyExtensionPolicies
           for these routes: [default/httproute-1]'
-        observedGeneration: 10
         reason: Overridden
         status: "True"
         type: Overridden
@@ -202,9 +197,6 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
-        ownerReference:
-          kind: GatewayClass
-          name: envoy-gateway-class
       name: envoy-gateway/gateway-1
       namespace: envoy-gateway-system
 xdsIR:
@@ -229,20 +221,12 @@ xdsIR:
       port: 10080
       routes:
       - destination:
-          metadata:
-            kind: HTTPRoute
-            name: httproute-1
-            namespace: default
           name: httproute/default/httproute-1/rule/0
           settings:
           - addressType: IP
             endpoints:
             - host: 7.7.7.7
               port: 8080
-            metadata:
-              name: service-1
-              namespace: default
-              sectionName: "8080"
             name: httproute/default/httproute-1/rule/0/backend/0
             protocol: HTTP
             weight: 1
@@ -263,20 +247,12 @@ xdsIR:
           name: ""
           prefix: /foo
       - destination:
-          metadata:
-            kind: HTTPRoute
-            name: httproute-2
-            namespace: default
           name: httproute/default/httproute-2/rule/0
           settings:
           - addressType: IP
             endpoints:
             - host: 7.7.7.7
               port: 8080
-            metadata:
-              name: service-1
-              namespace: default
-              sectionName: "8080"
             name: httproute/default/httproute-2/rule/0/backend/0
             protocol: HTTP
             weight: 1

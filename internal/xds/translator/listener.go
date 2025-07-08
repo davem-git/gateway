@@ -6,6 +6,7 @@
 package translator
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strconv"
@@ -16,9 +17,11 @@ import (
 	mutation_rulesv3 "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	rbacv3 "github.com/envoyproxy/go-control-plane/envoy/config/rbac/v3"
 	tls_inspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	connection_limitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/connection_limit/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	rbacconfig "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/rbac/v3"
 	tcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	udpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	early_header_mutationv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/early_header_mutation/header_mutation/v3"
@@ -35,6 +38,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/ir"
@@ -52,8 +56,7 @@ const (
 	// https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-field-config-core-v3-http2protocoloptions-initial-connection-window-size
 	http2InitialConnectionWindowSize = 1048576 // 1 MiB
 	// https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/connection_limit/v3/connection_limit.proto
-	networkConnectionLimit                    = "envoy.filters.network.connection_limit"
-	defaultMaxAcceptConnectionsPerSocketEvent = 1
+	networkConnectionLimit = "envoy.filters.network.connection_limit"
 )
 
 func http1ProtocolOptions(opts *ir.HTTP1Settings) *corev3.Http1ProtocolOptions {
@@ -198,13 +201,11 @@ func buildXdsTCPListener(
 		return nil, err
 	}
 	bufferLimitBytes := buildPerConnectionBufferLimitBytes(connection)
-	maxAcceptPerSocketEvent := buildMaxAcceptPerSocketEvent(connection)
 	listener := &listenerv3.Listener{
-		Name:                                 name,
-		AccessLog:                            al,
-		SocketOptions:                        socketOptions,
-		PerConnectionBufferLimitBytes:        bufferLimitBytes,
-		MaxConnectionsToAcceptPerSocketEvent: maxAcceptPerSocketEvent,
+		Name:                          name,
+		AccessLog:                     al,
+		SocketOptions:                 socketOptions,
+		PerConnectionBufferLimitBytes: bufferLimitBytes,
 		Address: &corev3.Address{
 			Address: &corev3.Address_SocketAddress{
 				SocketAddress: &corev3.SocketAddress{
@@ -231,16 +232,6 @@ func buildPerConnectionBufferLimitBytes(connection *ir.ClientConnection) *wrappe
 		return wrapperspb.UInt32(*connection.BufferLimitBytes)
 	}
 	return wrapperspb.UInt32(tcpListenerPerConnectionBufferLimitBytes)
-}
-
-func buildMaxAcceptPerSocketEvent(connection *ir.ClientConnection) *wrapperspb.UInt32Value {
-	if connection == nil || connection.MaxAcceptPerSocketEvent == nil {
-		return wrapperspb.UInt32(defaultMaxAcceptConnectionsPerSocketEvent)
-	}
-	if *connection.MaxAcceptPerSocketEvent == 0 {
-		return nil
-	}
-	return wrapperspb.UInt32(*connection.MaxAcceptPerSocketEvent)
 }
 
 // buildXdsQuicListener creates a xds Listener resource for quic
@@ -436,8 +427,7 @@ func (t *Translator) addHCMToXDSListener(xdsListener *listenerv3.Listener, irLis
 			config := irListener.TLS.DeepCopy()
 			// If the listener has overlapping TLS config with other listeners, we need to disable HTTP/2
 			// to avoid the HTTP/2 Connection Coalescing issue (see https://gateway-api.sigs.k8s.io/geps/gep-3567/)
-			// Note: if ALPN is explicitly set by the user using ClientTrafficPolicy, we keep it as is
-			if irListener.TLSOverlaps && config.ALPNProtocols == nil {
+			if irListener.TLSOverlaps {
 				config.ALPNProtocols = []string{"http/1.1"}
 			}
 			tSocket, err = buildXdsDownstreamTLSSocket(config)
@@ -579,31 +569,57 @@ func findXdsHTTPRouteConfigName(xdsListener *listenerv3.Listener) string {
 	return ""
 }
 
-func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
-	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
+func buildTCPFilterChain(
+	irRoute *ir.TCPRoute,
+	clusterName string,
+	statPrefix string,
+	accesslog *ir.AccessLog,
+	timeout *ir.ClientTimeout,
 	connection *ir.ClientConnection,
-) error {
-	if irRoute == nil {
-		return errors.New("tcp listener is nil")
+) (*listenerv3.FilterChain, error) {
+	var filters []*listenerv3.Filter
+
+	// Create access logs
+	al, err := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
+	if err != nil {
+		return nil, err
 	}
 
-	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
-	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
-	statPrefix := "tcp"
-	if isTLSPassthrough {
-		statPrefix = "tls-passthrough"
+	// Add RBAC filter first if Security features exist
+	if irRoute.Security != nil && irRoute.Security.Authorization != nil {
+		logger := log.Log.WithName("tcp-rbac")
+		logger.Info("Creating RBAC filter from Security features")
+
+		// Convert IR Authorization to RBAC config
+		rbacConfig := &rbacconfig.RBAC{
+			StatPrefix: "tcp_rbac_",
+			Rules: &rbacv3.RBAC{
+				Action:   rbacv3.RBAC_ALLOW,
+				Policies: convertRules(irRoute.Security.Authorization.Rules),
+			},
+		}
+
+		if f, err := toNetworkFilter("envoy.filters.network.rbac", rbacConfig); err == nil {
+			filters = append(filters, f)
+			logger.Info("Added RBAC filter to chain",
+				"num_policies", len(rbacConfig.Rules.Policies))
+		} else {
+			logger.Error(err, "Failed to create RBAC network filter")
+			return nil, err
+		}
 	}
 
-	if isTLSTerminate {
-		statPrefix = "tls-terminate"
+	// Add connection limit filter if configured
+	if connection != nil && connection.ConnectionLimit != nil {
+		cl := buildConnectionLimitFilter(statPrefix, connection)
+		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
+			filters = append(filters, clf)
+		} else {
+			return nil, err
+		}
 	}
 
-	// Append port to the statPrefix.
-	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
-	al, error := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
-	if error != nil {
-		return error
-	}
+	// Always add TCP proxy filter last
 	mgr := &tcpv3.TcpProxy{
 		AccessLog:  al,
 		StatPrefix: statPrefix,
@@ -613,34 +629,56 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 		HashPolicy: buildTCPProxyHashPolicy(irRoute.LoadBalancer),
 	}
 
-	if timeout != nil && timeout.TCP != nil {
-		if timeout.TCP.IdleTimeout != nil {
-			mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
-		}
+	// Add timeout if configured
+	if timeout != nil && timeout.TCP != nil && timeout.TCP.IdleTimeout != nil {
+		mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
 	}
 
-	var filters []*listenerv3.Filter
-
-	if connection != nil && connection.ConnectionLimit != nil {
-		cl := buildConnectionLimitFilter(statPrefix, connection)
-		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-			filters = append(filters, clf)
-		} else {
-			return err
-		}
-	}
-
+	// Add the TCP proxy filter (always last)
 	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
 		filters = append(filters, mgrf)
 	} else {
-		return err
+		return nil, err
 	}
 
+	// Build the filter chain
 	filterChain := &listenerv3.FilterChain{
 		Filters: filters,
 		Name:    irRoute.Name,
 	}
 
+	return filterChain, nil
+}
+
+func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute,
+	clusterName string, accesslog *ir.AccessLog, timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection,
+) error {
+	if irRoute == nil {
+		return errors.New("tcp route is nil")
+	}
+
+	// Determine the appropriate statPrefix
+	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
+	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
+	statPrefix := "tcp"
+	if isTLSPassthrough {
+		statPrefix = "tls-passthrough"
+	}
+	if isTLSTerminate {
+		statPrefix = "tls-terminate"
+	}
+
+	// Append port to the statPrefix
+	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
+
+	// Build the filter chain using our new function
+	filterChain, err := buildTCPFilterChain(irRoute, clusterName, statPrefix, accesslog, timeout, connection)
+	if err != nil {
+		return err
+	}
+
+	// Handle TLS configuration
 	if isTLSPassthrough {
 		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
 			return err
@@ -662,6 +700,7 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 		filterChain.TransportSocket = tSocket
 	}
 
+	// Add the filter chain to the listener
 	xdsListener.FilterChains = append(xdsListener.FilterChains, filterChain)
 
 	return nil
@@ -727,7 +766,12 @@ func buildDownstreamQUICTransportSocket(tlsConfig *ir.TLSConfig) (*corev3.Transp
 
 	if tlsConfig.CACertificate != nil {
 		tlsCtx.DownstreamTlsContext.RequireClientCertificate = &wrapperspb.BoolValue{Value: true}
-		setTLSValidationContext(tlsConfig, tlsCtx.DownstreamTlsContext.CommonTlsContext)
+		tlsCtx.DownstreamTlsContext.CommonTlsContext.ValidationContextType = &tlsv3.CommonTlsContext_ValidationContextSdsSecretConfig{
+			ValidationContextSdsSecretConfig: &tlsv3.SdsSecretConfig{
+				Name:      tlsConfig.CACertificate.Name,
+				SdsConfig: makeConfigSource(),
+			},
+		}
 	}
 
 	setDownstreamTLSSessionSettings(tlsConfig, tlsCtx.DownstreamTlsContext)
@@ -764,7 +808,12 @@ func buildXdsDownstreamTLSSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSock
 
 	if tlsConfig.CACertificate != nil {
 		tlsCtx.RequireClientCertificate = &wrapperspb.BoolValue{Value: tlsConfig.RequireClientCertificate}
-		setTLSValidationContext(tlsConfig, tlsCtx.CommonTlsContext)
+		tlsCtx.CommonTlsContext.ValidationContextType = &tlsv3.CommonTlsContext_ValidationContextSdsSecretConfig{
+			ValidationContextSdsSecretConfig: &tlsv3.SdsSecretConfig{
+				Name:      tlsConfig.CACertificate.Name,
+				SdsConfig: makeConfigSource(),
+			},
+		}
 	}
 
 	setDownstreamTLSSessionSettings(tlsConfig, tlsCtx)
@@ -780,51 +829,6 @@ func buildXdsDownstreamTLSSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSock
 			TypedConfig: tlsCtxAny,
 		},
 	}, nil
-}
-
-func setTLSValidationContext(tlsConfig *ir.TLSConfig, tlsCtx *tlsv3.CommonTlsContext) {
-	sdsSecretConfig := &tlsv3.SdsSecretConfig{
-		Name:      tlsConfig.CACertificate.Name,
-		SdsConfig: makeConfigSource(),
-	}
-	if len(tlsConfig.VerifyCertificateSpki) > 0 || len(tlsConfig.VerifyCertificateHash) > 0 || len(tlsConfig.MatchTypedSubjectAltNames) > 0 {
-		validationContext := &tlsv3.CertificateValidationContext{}
-		validationContext.VerifyCertificateSpki = append(validationContext.VerifyCertificateSpki, tlsConfig.VerifyCertificateSpki...)
-		validationContext.VerifyCertificateHash = append(validationContext.VerifyCertificateHash, tlsConfig.VerifyCertificateHash...)
-		for _, match := range tlsConfig.MatchTypedSubjectAltNames {
-			sanType := tlsv3.SubjectAltNameMatcher_OTHER_NAME
-			oid := ""
-			switch match.Name {
-			case "":
-				sanType = tlsv3.SubjectAltNameMatcher_SAN_TYPE_UNSPECIFIED
-			case "EMAIL":
-				sanType = tlsv3.SubjectAltNameMatcher_EMAIL
-			case "DNS":
-				sanType = tlsv3.SubjectAltNameMatcher_DNS
-			case "URI":
-				sanType = tlsv3.SubjectAltNameMatcher_URI
-			case "IP_ADDRESS":
-				sanType = tlsv3.SubjectAltNameMatcher_IP_ADDRESS
-			default:
-				oid = match.Name
-			}
-			validationContext.MatchTypedSubjectAltNames = append(validationContext.MatchTypedSubjectAltNames, &tlsv3.SubjectAltNameMatcher{
-				SanType: sanType,
-				Matcher: buildXdsStringMatcher(match),
-				Oid:     oid,
-			})
-		}
-		tlsCtx.ValidationContextType = &tlsv3.CommonTlsContext_CombinedValidationContext{
-			CombinedValidationContext: &tlsv3.CommonTlsContext_CombinedCertificateValidationContext{
-				DefaultValidationContext:         validationContext,
-				ValidationContextSdsSecretConfig: sdsSecretConfig,
-			},
-		}
-	} else {
-		tlsCtx.ValidationContextType = &tlsv3.CommonTlsContext_ValidationContextSdsSecretConfig{
-			ValidationContextSdsSecretConfig: sdsSecretConfig,
-		}
-	}
 }
 
 func setDownstreamTLSSessionSettings(tlsConfig *ir.TLSConfig, tlsCtx *tlsv3.DownstreamTlsContext) {
@@ -1112,4 +1116,85 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	}
 
 	return clientCertDetails
+}
+
+// convertRules converts IR authorization rules to Envoy RBAC policies
+func convertRules(rules []*ir.AuthorizationRule) map[string]*rbacv3.Policy {
+	policies := make(map[string]*rbacv3.Policy)
+
+	for _, rule := range rules {
+		// Only add ALLOW rules as policies
+		if rule.Action == egv1a1.AuthorizationActionAllow {
+			policies[rule.Name] = &rbacv3.Policy{
+				Principals: convertPrincipals(rule.Principal),
+				Permissions: []*rbacv3.Permission{{
+					Rule: &rbacv3.Permission_Any{Any: true},
+				}},
+			}
+		}
+	}
+
+	return policies
+}
+
+// convertPrincipals converts IR principals to Envoy RBAC principals
+func convertPrincipals(principal ir.Principal) []*rbacv3.Principal {
+	logger := log.FromContext(context.Background())
+	principals := []*rbacv3.Principal{}
+
+	logger.Info("Converting principals",
+		"num_cidrs", len(principal.ClientCIDRs))
+
+	for _, cidr := range principal.ClientCIDRs {
+		logger.Info("Processing CIDR",
+			"cidr", cidr.CIDR,
+			"ip", cidr.IP,
+			"mask_len", cidr.MaskLen)
+
+		principals = append(principals, &rbacv3.Principal{
+			Identifier: &rbacv3.Principal_DirectRemoteIp{
+				DirectRemoteIp: convertCIDR(cidr),
+			},
+		})
+	}
+
+	return principals
+}
+
+// convertCIDR converts IR CIDR match to Envoy CIDR range
+func convertCIDR(cidr *ir.CIDRMatch) *corev3.CidrRange {
+	logger := log.Log.WithName("cidr-converter")
+
+	// Use the full CIDR notation instead of separate fields
+	if cidr.CIDR != "" {
+		ip, ipNet, err := net.ParseCIDR(cidr.CIDR)
+		if err != nil {
+			logger.Error(err, "Failed to parse CIDR", "cidr", cidr.CIDR)
+			return &corev3.CidrRange{
+				AddressPrefix: cidr.IP,
+				PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
+			}
+		}
+
+		ones, _ := ipNet.Mask.Size()
+		logger.Info("Parsed CIDR successfully",
+			"ip", ip.String(),
+			"prefix_len", ones,
+			"cidr", cidr.CIDR)
+
+		return &corev3.CidrRange{
+			AddressPrefix: ip.String(),
+			PrefixLen:     wrapperspb.UInt32(uint32(ones)),
+		}
+	}
+
+	// Fall back to using the separate IP and mask length fields
+	logger.Info("Using separate IP and mask fields",
+		"ip", cidr.IP,
+		"mask_len", cidr.MaskLen)
+
+	return &corev3.CidrRange{
+		AddressPrefix: cidr.IP,
+		PrefixLen:     wrapperspb.UInt32(cidr.MaskLen),
+	}
 }

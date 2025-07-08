@@ -51,13 +51,8 @@ func BuildProxyArgs(
 
 	logging := infra.Config.Spec.Logging
 
-	serviceCluster := infra.Name
-	if gatewayNamespaceMode {
-		serviceCluster = fmt.Sprintf("%s/%s", infra.Namespace, infra.Name)
-	}
-
 	args := []string{
-		fmt.Sprintf("--service-cluster %s", serviceCluster),
+		fmt.Sprintf("--service-cluster %s", infra.Name),
 		fmt.Sprintf("--service-node %s", serviceNode),
 		fmt.Sprintf("--config-yaml %s", bootstrapConfigurations),
 		fmt.Sprintf("--log-level %s", logging.DefaultEnvoyProxyLoggingLevel()),

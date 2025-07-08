@@ -15,8 +15,6 @@ maintainers:
 - zhaohuabing
 - guydc
 - shawnh2
-- cnvergence
-- rudrakhp
 
 emeritus-maintainers:
 
@@ -32,7 +30,9 @@ reviewers:
 
 - kflynn
 - tanujd11
+- cnvergence
 - liorokman
+- rudrakhp
 
 emeritus-reviewers:
 

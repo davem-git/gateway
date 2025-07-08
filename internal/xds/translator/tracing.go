@@ -128,12 +128,11 @@ func processClusterForTracing(tCtx *types.ResourceVersionTable, tracing *ir.Trac
 	if traffic == nil {
 		traffic = &ir.TrafficFeatures{}
 	}
-
 	return addXdsCluster(tCtx, &xdsClusterArgs{
 		name:              tracing.Destination.Name,
 		settings:          tracing.Destination.Settings,
 		tSocket:           nil,
-		endpointType:      buildEndpointType(tracing.Destination.Settings),
+		endpointType:      EndpointTypeDNS,
 		metrics:           metrics,
 		loadBalancer:      traffic.LoadBalancer,
 		proxyProtocol:     traffic.ProxyProtocol,
@@ -144,7 +143,6 @@ func processClusterForTracing(tCtx *types.ResourceVersionTable, tracing *ir.Trac
 		backendConnection: traffic.BackendConnection,
 		dns:               traffic.DNS,
 		http2Settings:     traffic.HTTP2,
-		metadata:          tracing.Destination.Metadata,
 	})
 }
 

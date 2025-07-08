@@ -478,7 +478,7 @@ func convertToKeyValueList(attributes map[string]string, additionalLabels bool) 
 		// TODO: check the provider type and set the appropriate attributes
 		keyValueList.Values = append(keyValueList.Values, &otlpcommonv1.KeyValue{
 			Key:   k8sNamespaceNameKey,
-			Value: &otlpcommonv1.AnyValue{Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "%ENVIRONMENT(ENVOY_POD_NAMESPACE)%"}},
+			Value: &otlpcommonv1.AnyValue{Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "%ENVIRONMENT(ENVOY_GATEWAY_NAMESPACE)%"}},
 		})
 
 		keyValueList.Values = append(keyValueList.Values, &otlpcommonv1.KeyValue{
@@ -520,7 +520,7 @@ func processClusterForAccessLog(tCtx *types.ResourceVersionTable, al *ir.AccessL
 			name:              als.Destination.Name,
 			settings:          als.Destination.Settings,
 			tSocket:           nil,
-			endpointType:      buildEndpointType(als.Destination.Settings),
+			endpointType:      EndpointTypeStatic,
 			loadBalancer:      traffic.LoadBalancer,
 			proxyProtocol:     traffic.ProxyProtocol,
 			circuitBreaker:    traffic.CircuitBreaker,
@@ -530,7 +530,6 @@ func processClusterForAccessLog(tCtx *types.ResourceVersionTable, al *ir.AccessL
 			backendConnection: traffic.BackendConnection,
 			dns:               traffic.DNS,
 			http2Settings:     traffic.HTTP2,
-			metadata:          als.Destination.Metadata,
 		}); err != nil {
 			return err
 		}
@@ -548,7 +547,7 @@ func processClusterForAccessLog(tCtx *types.ResourceVersionTable, al *ir.AccessL
 			name:              otel.Destination.Name,
 			settings:          otel.Destination.Settings,
 			tSocket:           nil,
-			endpointType:      buildEndpointType(otel.Destination.Settings),
+			endpointType:      EndpointTypeDNS,
 			metrics:           metrics,
 			loadBalancer:      traffic.LoadBalancer,
 			proxyProtocol:     traffic.ProxyProtocol,
@@ -559,7 +558,6 @@ func processClusterForAccessLog(tCtx *types.ResourceVersionTable, al *ir.AccessL
 			backendConnection: traffic.BackendConnection,
 			dns:               traffic.DNS,
 			http2Settings:     traffic.HTTP2,
-			metadata:          otel.Destination.Metadata,
 		}); err != nil {
 			return err
 		}

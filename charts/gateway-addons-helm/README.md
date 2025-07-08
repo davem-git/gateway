@@ -41,7 +41,7 @@ The Envoy Gateway must be installed before installing this chart.
 Once Helm has been set up correctly, install the chart from dockerhub:
 
 ``` shell
-helm install eg-addons oci://docker.io/envoyproxy/gateway-addons-helm --version v0.0.0-latest -n monitoring --create-namespace
+    helm install eg-addons oci://docker.io/envoyproxy/gateway-addons-helm --version v0.0.0-latest -n monitoring --create-namespace
 ```
 
 You can find all helm chart release in [Dockerhub](https://hub.docker.com/r/envoyproxy/gateway-addons-helm/tags)
@@ -49,7 +49,7 @@ You can find all helm chart release in [Dockerhub](https://hub.docker.com/r/envo
 To uninstall the chart:
 
 ``` shell
-helm uninstall eg-addons -n monitoring
+    helm uninstall eg-addons -n monitoring
 ```
 
 ## Values
@@ -149,11 +149,6 @@ helm uninstall eg-addons -n monitoring
 | opentelemetry-collector.image.repository | string | `"otel/opentelemetry-collector-contrib"` |  |
 | opentelemetry-collector.image.tag | string | `"0.121.0"` |  |
 | opentelemetry-collector.mode | string | `"deployment"` |  |
-| opentelemetry-collector.ports.datadog.containerPort | int | `8126` |  |
-| opentelemetry-collector.ports.datadog.enabled | bool | `true` |  |
-| opentelemetry-collector.ports.datadog.hostPort | int | `8126` |  |
-| opentelemetry-collector.ports.datadog.protocol | string | `"TCP"` |  |
-| opentelemetry-collector.ports.datadog.servicePort | int | `8126` |  |
 | opentelemetry-collector.ports.envoy-als.appProtocol | string | `"grpc"` |  |
 | opentelemetry-collector.ports.envoy-als.containerPort | int | `9000` |  |
 | opentelemetry-collector.ports.envoy-als.enabled | bool | `true` |  |

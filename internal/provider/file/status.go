@@ -49,11 +49,8 @@ func (u *StatusHandler) Start(ctx context.Context, ready *sync.WaitGroup) {
 		case <-ctx.Done():
 			return
 		case update := <-u.updateChannel:
-			u.logger.Info("received a status update",
-				"kind", kubernetes.KindOf(update.Resource),
-				"namespace", update.NamespacedName.Namespace,
-				"name", update.NamespacedName.Name,
-			)
+			u.logger.Info("received a status update", "namespace", update.NamespacedName.Namespace,
+				"name", update.NamespacedName.Name)
 
 			u.logStatus(update)
 		}

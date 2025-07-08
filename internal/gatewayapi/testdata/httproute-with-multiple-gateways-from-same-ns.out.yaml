@@ -154,9 +154,6 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-a
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
-        ownerReference:
-          kind: GatewayClass
-          name: envoy-gateway-class
       name: envoy-gateway/gateway-a
       namespace: envoy-gateway-system
   envoy-gateway/gateway-b:
@@ -173,9 +170,6 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-b
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
-        ownerReference:
-          kind: GatewayClass
-          name: envoy-gateway-class
       name: envoy-gateway/gateway-b
       namespace: envoy-gateway-system
 xdsIR:

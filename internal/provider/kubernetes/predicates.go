@@ -31,10 +31,7 @@ import (
 )
 
 // nolint: gosec
-const (
-	oidcHMACSecretName = "envoy-oidc-hmac"
-	envoyTLSSecretName = "envoy"
-)
+const oidcHMACSecretName = "envoy-oidc-hmac"
 
 // hasMatchingController returns true if the provided object is a GatewayClass
 // with a Spec.Controller string matching this Envoy Gateway's controller string,
@@ -161,10 +158,6 @@ func (r *gatewayAPIReconciler) validateSecretForReconcile(obj client.Object) boo
 	}
 
 	if r.isOIDCHMACSecret(&nsName) {
-		return true
-	}
-
-	if r.isEnvoyTLSSecret(&nsName) {
 		return true
 	}
 
@@ -307,14 +300,6 @@ func (r *gatewayAPIReconciler) isOIDCHMACSecret(nsName *types.NamespacedName) bo
 		Name:      oidcHMACSecretName,
 	}
 	return *nsName == oidcHMACSecret
-}
-
-func (r *gatewayAPIReconciler) isEnvoyTLSSecret(nsName *types.NamespacedName) bool {
-	envoyTLSSecret := types.NamespacedName{
-		Namespace: r.namespace,
-		Name:      envoyTLSSecretName,
-	}
-	return *nsName == envoyTLSSecret
 }
 
 // validateServiceForReconcile tries finding the owning Gateway of the Service
@@ -775,20 +760,6 @@ func (r *gatewayAPIReconciler) validateConfigMapForReconcile(obj client.Object) 
 		}
 
 		if len(btpList.Items) > 0 {
-			return true
-		}
-	}
-
-	if r.eepCRDExists {
-		eepList := &egv1a1.EnvoyExtensionPolicyList{}
-		if err := r.client.List(context.Background(), eepList, &client.ListOptions{
-			FieldSelector: fields.OneTermEqualSelector(configMapEepIndex, utils.NamespacedName(configMap).String()),
-		}); err != nil {
-			r.log.Error(err, "unable to find associated EnvoyExtensionPolicy")
-			return false
-		}
-
-		if len(eepList.Items) > 0 {
 			return true
 		}
 	}

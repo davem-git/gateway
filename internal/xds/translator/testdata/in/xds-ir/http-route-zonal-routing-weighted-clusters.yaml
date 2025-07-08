@@ -19,8 +19,7 @@ http:
           zone: us-east-1b
         name: "first-route-dest/backend/0"
         weight: 30
-        zoneAwareRouting:
-          minSize: 1
+        zoneAwareRoutingEnabled: true
       - endpoints:
         - host: "3.4.5.6"
           port: 9090
@@ -30,3 +29,4 @@ http:
           zone: us-east-1d
         name: "first-route-dest/backend/1"
         weight: 70
+        zoneAwareRoutingEnabled: false

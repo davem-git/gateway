@@ -76,6 +76,7 @@ backendTrafficPolicies:
     rateLimit:
       type: Global
       global:
+        shared: true
         rules:
         - clientSelectors:
           - headers:
@@ -89,7 +90,6 @@ backendTrafficPolicies:
           limit:
             requests: 10
             unit: Hour
-          shared: true
 - apiVersion: gateway.envoyproxy.io/v1alpha1
   kind: BackendTrafficPolicy
   metadata:
@@ -103,6 +103,7 @@ backendTrafficPolicies:
     rateLimit:
       type: Global
       global:
+        shared: true
         rules:
         - clientSelectors:
           - sourceCIDR:
@@ -111,7 +112,6 @@ backendTrafficPolicies:
           limit:
             requests: 20
             unit: Hour
-          shared: true
         - clientSelectors:
           - sourceCIDR:
               type: "Distinct"
@@ -119,4 +119,3 @@ backendTrafficPolicies:
           limit:
             requests: 20
             unit: Hour
-          shared: true

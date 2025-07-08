@@ -54,9 +54,6 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
-        ownerReference:
-          kind: GatewayClass
-          name: envoy-gateway-class
       name: envoy-gateway/gateway-1
       namespace: envoy-gateway-system
 xdsIR:
@@ -84,7 +81,6 @@ xdsIR:
           conditions:
           - lastTransitionTime: null
             message: Policy has been accepted.
-            observedGeneration: 10
             reason: Accepted
             status: "True"
             type: Accepted
@@ -108,7 +104,6 @@ xdsIR:
           conditions:
           - lastTransitionTime: null
             message: Policy has been accepted.
-            observedGeneration: 10
             reason: Accepted
             status: "True"
             type: Accepted

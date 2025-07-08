@@ -129,7 +129,7 @@ configMaps:
     kind: ConfigMap
     metadata:
       name: ca-cmap
-      namespace: envoy-gateway
+      namespace: default
     data:
       ca.crt: |
         -----BEGIN CERTIFICATE-----

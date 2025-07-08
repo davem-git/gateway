@@ -174,7 +174,6 @@ func (r *ResourceRender) ServiceAccount() (*corev1.ServiceAccount, error) {
 			Kind:       ResourceKindServiceAccount,
 			APIVersion: apiVersion,
 		},
-		AutomountServiceAccountToken: ptr.To(false),
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: r.Namespace(),
 			Name:      InfraName,
@@ -340,13 +339,6 @@ func (r *ResourceRender) HorizontalPodAutoscaler() (*autoscalingv2.HorizontalPod
 		hpa.Spec.ScaleTargetRef.Name = *deploymentConfig.Name
 	} else {
 		hpa.Spec.ScaleTargetRef.Name = r.Name()
-	}
-
-	// set name
-	if hpaConfig.Name != nil {
-		hpa.Name = *hpaConfig.Name
-	} else {
-		hpa.Name = r.Name()
 	}
 
 	if hpa, err = utils.MergeWithPatch(hpa, hpaConfig.Patch); err != nil {

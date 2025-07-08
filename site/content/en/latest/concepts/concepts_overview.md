@@ -42,9 +42,9 @@ There are several resources that play a part in enabling you to meet your Kubern
 [2]:	https://gateway-api.sigs.k8s.io/api-types/gateway/
 [3]:	https://gateway-api.sigs.k8s.io/api-types/httproute/
 [4]:	https://gateway-api.sigs.k8s.io/api-types/grpcroute/
-[5]:	https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.TLSRoute
-[6]:	https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.TCPRoute
-[7]:	https://gateway-api.sigs.k8s.io/reference/spec#gateway.networking.k8s.io/v1alpha2.UDPRoute
+[5]:	https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.TLSRoute
+[6]:	https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.TCPRoute
+[7]:	https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1alpha2.UDPRoute
 [8]:	../tasks/traffic/backend
 [9]:	../api/extension_types#clienttrafficpolicy
 [10]:	../api/extension_types#backendtrafficpolicy

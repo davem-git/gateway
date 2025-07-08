@@ -732,7 +732,7 @@ func TestValidateTLSListenerConfig(t *testing.T) {
 					PrivateKey: []byte("priv-key"),
 				}},
 			},
-			want: ErrTLSCertEmpty,
+			want: ErrTLSServerCertEmpty,
 		},
 		{
 			name: "invalid private key",
@@ -1124,8 +1124,8 @@ func TestRouteDestination_NeedsClusterPerSetting(t *testing.T) {
 								Port: 8080,
 							},
 						},
-						AddressType:      ptr.To(FQDN),
-						ZoneAwareRouting: &ZoneAwareRouting{MinSize: 1},
+						AddressType:             ptr.To(FQDN),
+						ZoneAwareRoutingEnabled: true,
 					},
 					{
 						Endpoints: []*DestinationEndpoint{
@@ -1152,8 +1152,8 @@ func TestRouteDestination_NeedsClusterPerSetting(t *testing.T) {
 								Port: 8080,
 							},
 						},
-						AddressType:      ptr.To(FQDN),
-						ZoneAwareRouting: &ZoneAwareRouting{MinSize: 1},
+						AddressType:             ptr.To(FQDN),
+						ZoneAwareRoutingEnabled: true,
 					},
 				},
 			},
@@ -1452,13 +1452,6 @@ func TestRedaction(t *testing.T) {
 		{
 			name: "explicit string check",
 			input: Xds{
-				GlobalResources: &GlobalResources{
-					EnvoyClientCertificate: &TLSCertificate{
-						Name:        "test",
-						Certificate: []byte("Certificate"),
-						PrivateKey:  PrivateBytes([]byte("PrivateBytes")),
-					},
-				},
 				HTTP: []*HTTPListener{{
 					TLS: &TLSConfig{
 						Certificates: []TLSCertificate{{
@@ -1490,17 +1483,16 @@ func TestRedaction(t *testing.T) {
 			},
 			wantStr: `{"http":[{"name":"","address":"","port":0,"hostnames":null,` +
 				`"tls":{` +
-				`"certificates":[{"name":"server","certificate":"LS0t","privateKey":"[redacted]"}],` +
-				`"clientCertificates":[{"name":"client","certificate":"LS0t","privateKey":"[redacted]"}],` +
+				`"certificates":[{"name":"server","serverCertificate":"LS0t","privateKey":"[redacted]"}],` +
+				`"clientCertificates":[{"name":"client","serverCertificate":"LS0t","privateKey":"[redacted]"}],` +
 				`"alpnProtocols":null},` +
 				`"routes":[{` +
 				`"name":"","hostname":"","isHTTP2":false,"security":{` +
-				`"oidc":{"name":"","provider":{"authorizationEndpoint":"","tokenEndpoint":""},"clientID":"","clientSecret":"[redacted]","hmacSecret":"[redacted]"},` +
+				`"oidc":{"name":"","provider":{},"clientID":"","clientSecret":"[redacted]","hmacSecret":"[redacted]"},` +
 				`"apiKeyAuth":{"credentials":{"client-id":"[redacted]"},"extractFrom":null},` +
 				`"basicAuth":{"name":"","users":"[redacted]"}` +
 				`}}],` +
-				`"isHTTP2":false,"path":{"mergeSlashes":false,"escapedSlashesAction":""}}],` +
-				`"globalResources":{"envoyClientCertificate":{"name":"test","certificate":"Q2VydGlmaWNhdGU=","privateKey":"[redacted]"}}}`,
+				`"isHTTP2":false,"path":{"mergeSlashes":false,"escapedSlashesAction":""}}]}`,
 		},
 	}
 	for _, test := range tests {

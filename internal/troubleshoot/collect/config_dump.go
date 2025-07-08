@@ -81,7 +81,8 @@ func (cd ConfigDump) Collect(_ chan<- interface{}) (tbcollect.CollectorResult, e
 			continue
 		}
 
-		_ = output.SaveResult(cd.BundlePath, path.Join("config-dumps", pod.Namespace, fmt.Sprintf("%s.json", pod.Name)), bytes.NewBuffer(data))
+		k := fmt.Sprintf("%s-%s.json", pod.Namespace, pod.Name)
+		_ = output.SaveResult(cd.BundlePath, path.Join("config-dumps", k), bytes.NewBuffer(data))
 	}
 	if len(logs) > 0 {
 		_ = output.SaveResult(cd.BundlePath, path.Join("config-dumps", "errors.log"), marshalErrors(logs))

@@ -429,9 +429,6 @@ func buildHTTPActiveHealthChecker(h *egv1a1.HTTPActiveHealthChecker) *ir.HTTPHea
 	if irHTTP.Method != nil {
 		*irHTTP.Method = strings.ToUpper(*irHTTP.Method)
 	}
-	if h.Hostname != nil {
-		irHTTP.Host = *h.Hostname
-	}
 
 	// deduplicate http statuses
 	statusSet := sets.NewInt()
@@ -503,8 +500,6 @@ func buildRetry(r *egv1a1.Retry) (*ir.Retry, error) {
 	if r.NumRetries != nil {
 		rt.NumRetries = ptr.To(uint32(*r.NumRetries))
 	}
-
-	rt.NumAttemptsPerPriority = r.NumAttemptsPerPriority
 
 	if r.RetryOn != nil {
 		ro := &ir.RetryOn{}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/containers/image/v5/docker/reference"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -27,8 +26,8 @@ import (
 const (
 	// envoyContainerName is the name of the Envoy container.
 	envoyContainerName = "envoy"
-	// envoyNsEnvVar is the name of the Envoy pod namespace environment variable.
-	envoyNsEnvVar = "ENVOY_POD_NAMESPACE"
+	// envoyNsEnvVar is the name of the Envoy Gateway namespace environment variable.
+	envoyNsEnvVar = "ENVOY_GATEWAY_NAMESPACE"
 	// envoyPodEnvVar is the name of the Envoy pod name environment variable.
 	envoyPodEnvVar = "ENVOY_POD_NAME"
 	// envoyZoneEnvVar is the Envoy pod locality zone name
@@ -36,7 +35,6 @@ const (
 )
 
 // ExpectedResourceHashedName returns expected resource hashed name including up to the 48 characters of the original name.
-// WARNING: DO NOT USE THIS FUNCTION IN MOST OF THE CASES. Use ResourceRender.Name() instead.
 func ExpectedResourceHashedName(name string) string {
 	hashedName := utils.GetHashedName(name, 48)
 	return fmt.Sprintf("%s-%s", config.EnvoyPrefix, hashedName)
@@ -58,6 +56,16 @@ func EnvoyAppLabelSelector() []string {
 		"app.kubernetes.io/component=proxy",
 		"app.kubernetes.io/managed-by=envoy-gateway",
 	}
+}
+
+// envoyLabels returns the labels, including extraLabels, used for Envoy resources.
+func envoyLabels(extraLabels map[string]string) map[string]string {
+	labels := EnvoyAppLabel()
+	for k, v := range extraLabels {
+		labels[k] = v
+	}
+
+	return labels
 }
 
 func enablePrometheus(infra *ir.ProxyInfra) bool {
@@ -116,19 +124,14 @@ func expectedProxyContainers(infra *ir.ProxyInfra,
 		return nil, err
 	}
 
-	proxyImage, err := resolveProxyImage(containerSpec)
-	if err != nil {
-		return nil, err
-	}
-
 	containers := []corev1.Container{
 		{
 			Name:                     envoyContainerName,
-			Image:                    proxyImage,
+			Image:                    *containerSpec.Image,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			Command:                  []string{"envoy"},
 			Args:                     args,
-			Env:                      expectedContainerEnv(containerSpec),
+			Env:                      expectedContainerEnv(containerSpec, controllerNamespace),
 			Resources:                *containerSpec.Resources,
 			SecurityContext:          expectedEnvoySecurityContext(containerSpec),
 			Ports:                    ports,
@@ -190,7 +193,7 @@ func expectedProxyContainers(infra *ir.ProxyInfra,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			Command:                  []string{"envoy-gateway"},
 			Args:                     expectedShutdownManagerArgs(shutdownConfig),
-			Env:                      expectedContainerEnv(nil),
+			Env:                      expectedContainerEnv(nil, controllerNamespace),
 			Resources:                *egv1a1.DefaultShutdownManagerContainerResourceRequirements(),
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 			TerminationMessagePath:   "/dev/termination-log",
@@ -305,7 +308,7 @@ func expectedContainerVolumeMounts(containerSpec *egv1a1.KubernetesContainerSpec
 }
 
 // expectedVolumes returns expected proxy deployment volumes.
-func (r *ResourceRender) expectedVolumes(pod *egv1a1.KubernetesPodSpec) []corev1.Volume {
+func expectedVolumes(name string, gatewayNamespacedMode bool, pod *egv1a1.KubernetesPodSpec, dnsDomain string) []corev1.Volume {
 	var volumes []corev1.Volume
 	certsVolume := corev1.Volume{
 		Name: "certs",
@@ -317,13 +320,13 @@ func (r *ResourceRender) expectedVolumes(pod *egv1a1.KubernetesPodSpec) []corev1
 		},
 	}
 
-	if r.GatewayNamespaceMode {
+	if gatewayNamespacedMode {
 		certsVolume = corev1.Volume{
 			Name: "certs",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: r.Name(),
+						Name: ExpectedResourceHashedName(name),
 					},
 					Items: []corev1.KeyToPath{
 						{
@@ -336,7 +339,7 @@ func (r *ResourceRender) expectedVolumes(pod *egv1a1.KubernetesPodSpec) []corev1
 				},
 			},
 		}
-		saAudience := fmt.Sprintf("%s.%s.svc.%s", config.EnvoyGatewayServiceName, r.ControllerNamespace(), r.DNSDomain)
+		saAudience := fmt.Sprintf("%s.%s.svc.%s", config.EnvoyGatewayServiceName, config.DefaultNamespace, dnsDomain)
 		saTokenProjectedVolume := corev1.Volume{
 			Name: "sa-token",
 			VolumeSource: corev1.VolumeSource{
@@ -364,61 +367,53 @@ func (r *ResourceRender) expectedVolumes(pod *egv1a1.KubernetesPodSpec) []corev1
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: r.Name(),
+					Name: ExpectedResourceHashedName(name),
 				},
-				Items:       sdsConfigMapItems(r.GatewayNamespaceMode),
+				Items: []corev1.KeyToPath{
+					{
+						Key:  common.SdsCAFilename,
+						Path: common.SdsCAFilename,
+					},
+					{
+						Key:  common.SdsCertFilename,
+						Path: common.SdsCertFilename,
+					},
+				},
 				DefaultMode: ptr.To[int32](420),
 				Optional:    ptr.To(false),
 			},
 		},
 	}
-
+	if gatewayNamespacedMode {
+		sdsVolume = corev1.Volume{
+			Name: "sds",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: ExpectedResourceHashedName(name),
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  common.SdsCAFilename,
+							Path: common.SdsCAFilename,
+						},
+					},
+					DefaultMode: ptr.To[int32](420),
+					Optional:    ptr.To(false),
+				},
+			},
+		}
+	}
 	volumes = append(volumes, sdsVolume)
 	return resource.ExpectedVolumes(pod, volumes)
 }
 
-func sdsConfigMapItems(gatewayNamespaceMode bool) []corev1.KeyToPath {
-	if gatewayNamespaceMode {
-		return []corev1.KeyToPath{
-			{
-				Key:  common.SdsCAFilename,
-				Path: common.SdsCAFilename,
-			},
-		}
-	}
-
-	return []corev1.KeyToPath{
-		{
-			Key:  common.SdsCAFilename,
-			Path: common.SdsCAFilename,
-		},
-		{
-			Key:  common.SdsCertFilename,
-			Path: common.SdsCertFilename,
-		},
-	}
-}
-
 // expectedContainerEnv returns expected proxy container envs.
-func expectedContainerEnv(containerSpec *egv1a1.KubernetesContainerSpec) []corev1.EnvVar {
+func expectedContainerEnv(containerSpec *egv1a1.KubernetesContainerSpec, controllerNamespace string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{
-			Name: envoyNsEnvVar,
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{
-					APIVersion: "v1",
-					FieldPath:  "metadata.namespace",
-				},
-			},
-		},
-		{
-			Name: envoyPodEnvVar,
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{
-					APIVersion: "v1",
-					FieldPath:  "metadata.name",
-				},
-			},
+			Name:  envoyNsEnvVar,
+			Value: controllerNamespace,
 		},
 		{
 			Name: envoyZoneEnvVar,
@@ -430,6 +425,16 @@ func expectedContainerEnv(containerSpec *egv1a1.KubernetesContainerSpec) []corev
 			},
 		},
 	}
+
+	env = append(env, corev1.EnvVar{
+		Name: envoyPodEnvVar,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				APIVersion: "v1",
+				FieldPath:  "metadata.name",
+			},
+		},
+	})
 
 	if containerSpec != nil {
 		return resource.ExpectedContainerEnv(containerSpec, env)
@@ -484,42 +489,4 @@ func expectedShutdownManagerSecurityContext(containerSpec *egv1a1.KubernetesCont
 	// so it needs file write permission.
 	sc.ReadOnlyRootFilesystem = nil
 	return sc
-}
-
-func resolveProxyImage(containerSpec *egv1a1.KubernetesContainerSpec) (string, error) {
-	if containerSpec == nil {
-		return "", fmt.Errorf("containerSpec is nil")
-	}
-
-	repo := ptr.Deref(containerSpec.ImageRepository, "")
-	if repo != "" {
-		tag, err := getImageTag(egv1a1.DefaultEnvoyProxyImage)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("%s:%s", repo, tag), nil
-	}
-
-	image := ptr.Deref(containerSpec.Image, "")
-	if image != "" {
-		return image, nil
-	}
-
-	return egv1a1.DefaultEnvoyProxyImage, nil
-}
-
-// getImageTag parses a Docker/OCI image reference and returns the tag if present.
-// Returns an error if parsing fails or if no tag is found.
-func getImageTag(image string) (string, error) {
-	ref, err := reference.ParseNormalizedNamed(image)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse image reference %q: %w", image, err)
-	}
-
-	tagged, ok := ref.(reference.Tagged)
-	if !ok {
-		return "", fmt.Errorf("no tag found in image reference %q", image)
-	}
-
-	return tagged.Tag(), nil
 }

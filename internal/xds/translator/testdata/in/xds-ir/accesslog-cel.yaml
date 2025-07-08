@@ -29,8 +29,7 @@ accesslog:
     destination:
       name: "accesslog-0"
       settings:
-      - addressType: FQDN
-        endpoints:
+      - endpoints:
         - host: "otel-collector.default.svc.cluster.local"
           port: 4317
         protocol: "GRPC"

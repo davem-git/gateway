@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/util/sets"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
 	"github.com/envoyproxy/gateway/internal/cmd/options"
@@ -27,7 +26,6 @@ import (
 type collectOptions struct {
 	outPath               string
 	envoyGatewayNamespace string
-	proxyNamespaces       []string
 }
 
 func newCollectCommand() *cobra.Command {
@@ -50,8 +48,6 @@ func newCollectCommand() *cobra.Command {
 		"Specify the output file path for collected data. If not specified, a timestamped file will be created in the current directory.")
 	collectCommand.PersistentFlags().StringVarP(&collectOpts.envoyGatewayNamespace, "envoy-system-namespace", "", "envoy-gateway-system",
 		"Specify the namespace where the Envoy Gateway controller is installed.")
-	collectCommand.PersistentFlags().StringArrayVarP(&collectOpts.proxyNamespaces, "envoy-proxy-namespaces", "", []string{},
-		"Specify the namespaces where Envoy proxies are running.")
 
 	return collectCommand
 }
@@ -92,16 +88,8 @@ func runCollect(collectOpts collectOptions) error {
 		return fmt.Errorf("create bundle dir: %w", err)
 	}
 
-	proxyNamespaces := sets.New(collectOpts.proxyNamespaces...)
-	opts := tb.CollectOptions{
-		BundlePath:          bundlePath,
-		CollectedNamespaces: []string{collectOpts.envoyGatewayNamespace},
-	}
-	if len(proxyNamespaces) > 0 {
-		opts.CollectedNamespaces = append(opts.CollectedNamespaces, proxyNamespaces.UnsortedList()...)
-	}
-	result := tb.CollectResult(ctx, restConfig, opts)
-	return result.ArchiveBundle(bundlePath, fmt.Sprintf("%s.tar.gz", basename))
+	result := tb.CollectResult(ctx, restConfig, bundlePath, collectOpts.envoyGatewayNamespace)
+	return result.ArchiveSupportBundle(bundlePath, fmt.Sprintf("%s.tar.gz", basename))
 }
 
 func waitForSignal(c context.Context, cancel context.CancelFunc) {

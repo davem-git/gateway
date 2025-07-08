@@ -124,7 +124,7 @@ func TestBuildUpgradeConfig(t *testing.T) {
 		{
 			name: "spdy",
 			trafficFeature: &ir.TrafficFeatures{
-				HTTPUpgrade: []ir.HTTPUpgradeConfig{{Type: "spdy/3.1"}},
+				HTTPUpgrade: []string{"spdy/3.1"},
 			},
 			expected: []*routev3.RouteAction_UpgradeConfig{
 				{
@@ -135,10 +135,7 @@ func TestBuildUpgradeConfig(t *testing.T) {
 		{
 			name: "spdy-websocket",
 			trafficFeature: &ir.TrafficFeatures{
-				HTTPUpgrade: []ir.HTTPUpgradeConfig{
-					{Type: "spdy/3.1"},
-					{Type: "websocket"},
-				},
+				HTTPUpgrade: []string{"spdy/3.1", "websocket"},
 			},
 			expected: []*routev3.RouteAction_UpgradeConfig{
 				{
@@ -152,10 +149,7 @@ func TestBuildUpgradeConfig(t *testing.T) {
 		{
 			name: "websocket-spdy",
 			trafficFeature: &ir.TrafficFeatures{
-				HTTPUpgrade: []ir.HTTPUpgradeConfig{
-					{Type: "websocket"},
-					{Type: "spdy/3.1"},
-				},
+				HTTPUpgrade: []string{"websocket", "spdy/3.1"},
 			},
 			expected: []*routev3.RouteAction_UpgradeConfig{
 				{
