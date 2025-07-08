@@ -34,6 +34,7 @@ data:
     logging:
       level:
         default: debug
+        filter: debug
     provider:
       kubernetes:
         rateLimitDeployment:
