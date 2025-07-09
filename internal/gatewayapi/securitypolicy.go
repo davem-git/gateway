@@ -161,9 +161,17 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 
 						key := gwNN.String()
 						if _, ok := gatewayRouteMap[key]; !ok {
-							gatewayRouteMap[key] = make(map[string]sets.Set[string])
+							gatewayRouteMap[key] = make(map[string]map[string]sets.Set[string])
 						}
-						listenerRouteMap := gatewayRouteMap[key]
+						listenerRouteMap := listenerRouteMap := gatewayRouteMap[key]
+						sectionName := ""
+						if p.SectionName != nil {
+							sectionName = string(*p.SectionName)
+						}
+						if _, ok := listenerRouteMap[sectionName]; !ok {
+							listenerRouteMap[sectionName] = make(sets.Set[string])
+						}
+						listenerRouteMap[sectionName]
 						sectionName := ""
 						if p.SectionName != nil {
 							sectionName = string(*p.SectionName)
@@ -305,30 +313,56 @@ func (t *Translator) processSecurityPolicyForGateway(
 	// Set Accepted condition if it is unset
 	status.SetAcceptedForPolicyAncestors(&policy.Status, parentGateways, t.GatewayControllerName, policy.Generation)
 
-				// Check if this policy is overridden by other policies targeting
-				// at route level
-				if r, ok := gatewayRouteMap[gatewayNN.String()]; ok {
-					// Maintain order here to ensure status/string does not change with the same data
-					routes := r.UnsortedList()
-					sort.Strings(routes)
-					message := fmt.Sprintf(
-						"This policy is being overridden by other securityPolicies for these routes: %v",
-						routes)
-					status.SetConditionForPolicyAncestors(&policy.Status,
-						parentGateways,
-						t.GatewayControllerName,
-						egv1a1.PolicyConditionOverridden,
-						metav1.ConditionTrue,
-						egv1a1.PolicyReasonOverridden,
-						message,
-						policy.Generation,
-					)
-				}
-			}
+	// Check if this policy is overridden by other policies targeting at route and listener levels
+	overriddenTargetsMessage := getOverriddenTargetsMessage(
+		gatewayMap[gatewayNN], gatewayRouteMap[gatewayNN.String()], currTarget.SectionName)
+	if overriddenTargetsMessage != "" {
+		status.SetConditionForPolicyAncestors(&policy.Status,
+			parentGateways,
+			t.GatewayControllerName,
+			egv1a1.PolicyConditionOverridden,
+			metav1.ConditionTrue,
+			egv1a1.PolicyReasonOverridden,
+			"This policy is being overridden by other securityPolicies for "+overriddenTargetsMessage,
+			policy.Generation,
+		)
+	}
+}
+
+func getOverriddenTargetsMessage(
+	targetContext *policyGatewayTargetContext,
+	listenerRouteMap map[string]sets.Set[string],
+	sectionName *gwapiv1.SectionName,
+) string {
+	var listeners, routes []string
+	if sectionName == nil {
+		if targetContext != nil {
+			listeners = targetContext.attachedToListeners.UnsortedList()
+		}
+		for _, routeSet := range listenerRouteMap {
+			routes = append(routes, routeSet.UnsortedList()...)
+		}
+	} else if listenerRouteMap != nil {
+		if routeSet, ok := listenerRouteMap[string(*sectionName)]; ok {
+			routes = routeSet.UnsortedList()
+		}
+		if routeSet, ok := listenerRouteMap[""]; ok {
+			routes = append(routes, routeSet.UnsortedList()...)
 		}
 	}
-
-	return res
+	if len(listeners) > 0 {
+		sort.Strings(listeners)
+		if len(routes) > 0 {
+			sort.Strings(routes)
+			return fmt.Sprintf("these listeners: %v and these routes: %v", listeners, routes)
+		} else {
+			return fmt.Sprintf("these listeners: %v", listeners)
+		}
+	} else if len(routes) > 0 {
+		sort.Strings(routes)
+		return fmt.Sprintf("these routes: %v", routes)
+	}
+	return ""
 }
 
 // Determines if a route is HTTP or TCP based on its type.
