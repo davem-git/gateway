@@ -102,7 +102,7 @@ helm uninstall eg -n envoy-gateway-system
 | global.imageRegistry | string | `""` | Global override for image registry |
 | global.images.envoyGateway.image | string | `nil` |  |
 | global.images.envoyGateway.pullPolicy | string | `nil` |  |
-| global.images.envoyGateway.pullSecrets[0].name | string | `"regcred"` |  |
+| global.images.envoyGateway.pullSecrets | list | `[]` |  |
 | global.images.ratelimit.image | string | `"docker.io/envoyproxy/ratelimit:master"` |  |
 | global.images.ratelimit.pullPolicy | string | `"IfNotPresent"` |  |
 | global.images.ratelimit.pullSecrets | list | `[]` |  |
