@@ -1427,11 +1427,15 @@ func (t *Translator) processDestination(name string, backendRefContext BackendRe
 		if t.isCustomBackendResource(backendRef.Group, KindDerefOr(backendRef.Kind, resource.KindService)) {
 			// Add the custom backend resource to ExtensionRefFilters so it can be processed by the extension system
 			unstructuredRef = t.processBackendExtensions(backendRef.BackendObjectReference, backendNamespace, resources)
+<<<<<<< HEAD
 			return &ir.DestinationSetting{
 				Name:            name,
 				Weight:          &weight,
 				IsCustomBackend: true,
 			}, unstructuredRef, nil
+=======
+			return nil, unstructuredRef, nil
+>>>>>>> 328050d19 (feat: support custom backendRef via extension server (#6342))
 		}
 	}
 

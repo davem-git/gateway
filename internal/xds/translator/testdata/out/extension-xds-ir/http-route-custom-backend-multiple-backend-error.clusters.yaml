@@ -1,7 +1,12 @@
 - circuitBreakers:
     thresholds:
     - maxRetries: 1024
+<<<<<<< HEAD
   commonLbConfig: {}
+=======
+  commonLbConfig:
+    localityWeightedLbConfig: {}
+>>>>>>> 328050d19 (feat: support custom backendRef via extension server (#6342))
   connectTimeout: 10s
   dnsLookupFamily: V4_PREFERRED
   edsClusterConfig:
@@ -11,6 +16,7 @@
     serviceName: custom-backend-dest
   ignoreHealthOnHostRemoval: true
   lbPolicy: LEAST_REQUEST
+<<<<<<< HEAD
   loadBalancingPolicy:
     policies:
     - typedExtensionConfig:
@@ -19,6 +25,8 @@
           '@type': type.googleapis.com/envoy.extensions.load_balancing_policies.least_request.v3.LeastRequest
           localityLbConfig:
             localityWeightedLbConfig: {}
+=======
+>>>>>>> 328050d19 (feat: support custom backendRef via extension server (#6342))
   name: custom-backend-dest
   perConnectionBufferLimitBytes: 32768
   type: EDS
