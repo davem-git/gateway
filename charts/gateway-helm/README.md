@@ -117,4 +117,3 @@ helm uninstall eg -n envoy-gateway-system
 | service.trafficDistribution | string | `""` |  |
 | topologyInjector.annotations | object | `{}` |  |
 | topologyInjector.enabled | bool | `true` |  |
-
