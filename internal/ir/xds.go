@@ -2008,8 +2008,6 @@ type TCPRoute struct {
 	DNS *DNS `json:"dns,omitempty" yaml:"dns,omitempty"`
 	// Security holds the features associated with SecurityPolicy
 	Security *SecurityFeatures `json:"security,omitempty" yaml:"security,omitempty"`
-	// Direct responses to be returned for this route. Takes precedence over Destinations and Redirect.
-	DirectResponse *CustomResponse `json:"directResponse,omitempty" yaml:"directResponse,omitempty"`
 }
 
 // TLS holds information for configuring TLS on a listener
@@ -2069,12 +2067,6 @@ func (t TCPRoute) Validate() error {
 
 	if t.LoadBalancer != nil {
 		if err := t.LoadBalancer.Validate(); err != nil {
-			errs = errors.Join(errs, err)
-		}
-	}
-
-	if t.DirectResponse != nil {
-		if err := t.DirectResponse.Validate(); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
