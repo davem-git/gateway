@@ -1368,7 +1368,8 @@ type Principal struct {
 	// Headers defines the headers to be matched.
 	Headers []egv1a1.AuthorizationHeaderMatch `json:"headers,omitempty"`
 	// USED DOWNSTREAM_SOURCE_IP is used to match the source IP of the downstream client.
-	UseDownstreamSourceIP bool
+	// This field is used for TCP routes to enable source IP enforcement in RBAC.
+	UseDownstreamSourceIP bool `json:"useDownstreamSourceIP,omitempty" yaml:"useDownstreamSourceIP,omitempty"`
 }
 
 // FaultInjection defines the schema for injecting faults into requests.
@@ -2488,29 +2489,6 @@ type TCPKeepalive struct {
 	// Defaults to `75s`.
 	Interval *uint32 `json:"interval,omitempty" yaml:"interval,omitempty"`
 }
-
-// +k8s:deepcopy-gen=true
-type NetworkFilter struct {
-	Name   string      `json:"name" yaml:"name"`
-	Config *RBACConfig `json:"config,omitempty" yaml:"config,omitempty"`
-}
-
-// +k8s:deepcopy-gen=true
-type RBACConfig struct {
-	Rules               []*AuthorizationRule       `json:"rules,omitempty" yaml:"rules,omitempty"`
-	DefaultAction       egv1a1.AuthorizationAction `json:"defaultAction,omitempty" yaml:"defaultAction,omitempty"`
-	StatPrefix          string                     `json:"statPrefix,omitempty" yaml:"statPrefix,omitempty"`
-	SourceIPEnforcement bool                       `json:"sourceIPEnforcement,omitempty" yaml:"sourceIPEnforcement,omitempty"`
-}
-
-// +k8s:deepcopy-gen=true
-type AuthorizationAction string
-
-const (
-	// Define the possible actions
-	Allow AuthorizationAction = "Allow"
-	Deny  AuthorizationAction = "Deny"
-)
 
 // LoadBalancer defines the load balancer settings.
 // +k8s:deepcopy-gen=true

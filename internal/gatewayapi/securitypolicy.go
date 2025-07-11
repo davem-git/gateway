@@ -717,7 +717,7 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 		err, errs     error
 	)
 
-	// Build the authorization IR from the policy
+	// Build the authorization IR from the policy - THIS IS GOOD
 	if policy.Spec.Authorization != nil {
 		if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
 			errs = errors.Join(errs, err)
@@ -725,11 +725,11 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 		}
 	}
 
-	// Get the route prefix without trailing slash for TCP routes
+	// Get the route prefix - THIS IS GOOD
 	prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
 	parentRefs := GetParentReferences(route)
 
-	// Process each parent gateway this route is attached to
+	// Process each parent gateway - THIS IS GOOD
 	for _, p := range parentRefs {
 		parentRefCtx := GetRouteParentContext(route, p)
 		gtwCtx := parentRefCtx.GetGateway()
@@ -737,17 +737,15 @@ func (t *Translator) translateSecurityPolicyForTCPRoute(
 			continue
 		}
 
-		// Get the IR for this gateway
 		irKey := t.getIRKey(gtwCtx.Gateway)
 
-		// Update each listener that this route is attached to
+		// THIS PART IS PERFECT - directly using Authorization
 		for _, listener := range parentRefCtx.listeners {
 			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
 			if irListener == nil {
 				continue
 			}
 
-			// Update route security - this is the key change
 			for _, r := range irListener.Routes {
 				if r.Name == prefix {
 					// Set the security features on the route
