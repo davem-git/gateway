@@ -123,7 +123,7 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 								status.Error2ConditionMsg(err))
 							continue
 						}
-						err := t.translateSecurityPolicyForTCPRoute(policy, targetedRoute, xdsIR)
+						err := t.translateSecurityPolicyForRoute(policy, targetedRoute, resources, xdsIR)
 						if err != nil {
 							status.SetTranslationErrorForPolicyAncestors(&policy.Status,
 								parentGateways,
@@ -599,39 +599,45 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	policy *egv1a1.SecurityPolicy, route RouteContext,
 	resources *resource.Resources, xdsIR resource.XdsIRMap,
 ) error {
-	// Build IR
+	// Determine the protocol
+	protocol := getRouteProtocol(route)
+
+	// Build IR based on route type
 	var (
 		cors          *ir.CORS
 		apiKeyAuth    *ir.APIKeyAuth
 		basicAuth     *ir.BasicAuth
 		authorization *ir.Authorization
+		jwt           *ir.JWT
+		oidc          *ir.OIDC
+		extAuth       *ir.ExtAuth
 		err, errs     error
 	)
 
-	if policy.Spec.CORS != nil {
-		cors = t.buildCORS(policy.Spec.CORS)
-	}
+	// Only build HTTP-specific features for HTTP routes
+	if protocol == ir.HTTP {
+		if policy.Spec.CORS != nil {
+			cors = t.buildCORS(policy.Spec.CORS)
+		}
 
-	if policy.Spec.BasicAuth != nil {
-		if basicAuth, err = t.buildBasicAuth(
-			policy,
-			resources); err != nil {
-			err = perr.WithMessage(err, "BasicAuth")
-			errs = errors.Join(errs, err)
+		if policy.Spec.BasicAuth != nil {
+			if basicAuth, err = t.buildBasicAuth(policy, resources); err != nil {
+				err = perr.WithMessage(err, "BasicAuth")
+				errs = errors.Join(errs, err)
+			}
+		}
+
+		if policy.Spec.APIKeyAuth != nil {
+			if apiKeyAuth, err = t.buildAPIKeyAuth(policy, resources); err != nil {
+				err = perr.WithMessage(err, "APIKeyAuth")
+				errs = errors.Join(errs, err)
+			}
 		}
 	}
 
-	if policy.Spec.APIKeyAuth != nil {
-		if apiKeyAuth, err = t.buildAPIKeyAuth(
-			policy,
-			resources); err != nil {
-			err = perr.WithMessage(err, "APIKeyAuth")
-			errs = errors.Join(errs, err)
-		}
-	}
-
+	// Authorization works for both HTTP and TCP
 	if policy.Spec.Authorization != nil {
-		if authorization, err = t.buildAuthorization(policy); err != nil {
+		if authorization, err = t.buildAuthorization(policy, protocol); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
@@ -639,6 +645,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	// Apply IR to all relevant routes
 	prefix := irRoutePrefix(route)
 	parentRefs := GetParentReferences(route)
+
 	for _, p := range parentRefs {
 		parentRefCtx := GetRouteParentContext(route, p)
 		gtwCtx := parentRefCtx.GetGateway()
@@ -646,113 +653,71 @@ func (t *Translator) translateSecurityPolicyForRoute(
 			continue
 		}
 
-		var extAuth *ir.ExtAuth
-		if policy.Spec.ExtAuth != nil {
-			if extAuth, err = t.buildExtAuth(
-				policy,
-				resources,
-				gtwCtx.envoyProxy); err != nil {
-				err = perr.WithMessage(err, "ExtAuth")
-				errs = errors.Join(errs, err)
+		// Build HTTP-specific features that need gateway context
+		if protocol == ir.HTTP {
+			if policy.Spec.ExtAuth != nil {
+				if extAuth, err = t.buildExtAuth(policy, resources, gtwCtx.envoyProxy); err != nil {
+					err = perr.WithMessage(err, "ExtAuth")
+					errs = errors.Join(errs, err)
+				}
 			}
-		}
 
-		var oidc *ir.OIDC
-		if policy.Spec.OIDC != nil {
-			if oidc, err = t.buildOIDC(
-				policy,
-				resources,
-				gtwCtx.envoyProxy); err != nil {
-				err = perr.WithMessage(err, "OIDC")
-				errs = errors.Join(errs, err)
+			if policy.Spec.OIDC != nil {
+				if oidc, err = t.buildOIDC(policy, resources, gtwCtx.envoyProxy); err != nil {
+					err = perr.WithMessage(err, "OIDC")
+					errs = errors.Join(errs, err)
+				}
 			}
-		}
 
-		var jwt *ir.JWT
-		if policy.Spec.JWT != nil {
-			if jwt, err = t.buildJWT(
-				policy,
-				resources,
-				gtwCtx.envoyProxy); err != nil {
-				err = perr.WithMessage(err, "JWT")
-				errs = errors.Join(errs, err)
+			if policy.Spec.JWT != nil {
+				if jwt, err = t.buildJWT(policy, resources, gtwCtx.envoyProxy); err != nil {
+					err = perr.WithMessage(err, "JWT")
+					errs = errors.Join(errs, err)
+				}
 			}
 		}
 
 		irKey := t.getIRKey(gtwCtx.Gateway)
+
+		// Handle both HTTP and TCP routes
 		for _, listener := range parentRefCtx.listeners {
-			irListener := xdsIR[irKey].GetHTTPListener(irListenerName(listener))
-			if irListener != nil {
-				for _, r := range irListener.Routes {
-					if strings.HasPrefix(r.Name, prefix) {
-						r.Security = &ir.SecurityFeatures{
-							CORS:          cors,
-							JWT:           jwt,
-							OIDC:          oidc,
-							APIKeyAuth:    apiKeyAuth,
-							BasicAuth:     basicAuth,
-							ExtAuth:       extAuth,
-							Authorization: authorization,
-						}
-						if errs != nil {
-							// Return a 500 direct response to avoid unauthorized access
-							r.DirectResponse = &ir.CustomResponse{
-								StatusCode: ptr.To(uint32(500)),
+			switch protocol {
+			case ir.HTTP:
+				// HTTP route handling
+				irListener := xdsIR[irKey].GetHTTPListener(irListenerName(listener))
+				if irListener != nil {
+					for _, r := range irListener.Routes {
+						if strings.HasPrefix(r.Name, prefix) {
+							r.Security = &ir.SecurityFeatures{
+								CORS:          cors,
+								JWT:           jwt,
+								OIDC:          oidc,
+								APIKeyAuth:    apiKeyAuth,
+								BasicAuth:     basicAuth,
+								ExtAuth:       extAuth,
+								Authorization: authorization,
+							}
+							if errs != nil {
+								// Return a 500 direct response to avoid unauthorized access
+								r.DirectResponse = &ir.CustomResponse{
+									StatusCode: ptr.To(uint32(500)),
+								}
 							}
 						}
 					}
 				}
-			}
-		}
-	}
-	return errs
-}
-
-func (t *Translator) translateSecurityPolicyForTCPRoute(
-	policy *egv1a1.SecurityPolicy, route RouteContext,
-	xdsIR resource.XdsIRMap,
-) error {
-	var (
-		authorization *ir.Authorization
-		err, errs     error
-	)
-
-	// Build the authorization IR from the policy - THIS IS GOOD
-	if policy.Spec.Authorization != nil {
-		if authorization, err = t.buildAuthorization(policy, ir.TCP); err != nil {
-			errs = errors.Join(errs, err)
-			return errs
-		}
-	}
-
-	// Get the route prefix - THIS IS GOOD
-	prefix := strings.TrimSuffix(irRoutePrefix(route), "/")
-	parentRefs := GetParentReferences(route)
-
-	// Process each parent gateway - THIS IS GOOD
-	for _, p := range parentRefs {
-		parentRefCtx := GetRouteParentContext(route, p)
-		gtwCtx := parentRefCtx.GetGateway()
-		if gtwCtx == nil {
-			continue
-		}
-
-		irKey := t.getIRKey(gtwCtx.Gateway)
-
-		// THIS PART IS PERFECT - directly using Authorization
-		for _, listener := range parentRefCtx.listeners {
-			irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
-			if irListener == nil {
-				continue
-			}
-
-			for _, r := range irListener.Routes {
-				if r.Name == prefix {
-					// Set the security features on the route
-					if r.Security == nil {
-						r.Security = &ir.SecurityFeatures{}
+			case ir.TCP:
+				// TCP route handling
+				irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
+				if irListener != nil {
+					for _, r := range irListener.Routes {
+						if r.Name == strings.TrimSuffix(prefix, "/") {
+							if r.Security == nil {
+								r.Security = &ir.SecurityFeatures{}
+							}
+							r.Security.Authorization = authorization
+						}
 					}
-					r.Security.Authorization = authorization
 				}
 			}
 		}
