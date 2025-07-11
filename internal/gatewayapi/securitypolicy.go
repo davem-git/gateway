@@ -73,6 +73,7 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 			Name:      route.GetName(),
 			Namespace: route.GetNamespace(),
 			Protocol:  getRouteProtocol(route),
+			Protocol:  getRouteProtocol(route),
 		}
 		routeMap[key] = &policyRouteTargetContext{RouteContext: route}
 	}
@@ -109,6 +110,24 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 					policy = currPolicy.DeepCopy()
 					handledPolicies[policyName] = policy
 					res = append(res, policy)
+				}
+				// Handle route based on its type
+				switch currTarget.Kind {
+				case resource.KindTCPRoute:
+					targetedRoute, resolveErr = resolveSecurityPolicyTCPRouteTargetRef(policy, currTarget, routeMap)
+					if resolveErr == nil && targetedRoute != nil {
+						err := t.translateSecurityPolicyForRoute(policy, targetedRoute, resources, xdsIR)
+						if err != nil {
+							status.SetTranslationErrorForPolicyAncestors(&policy.Status,
+								parentGateways,
+								t.GatewayControllerName,
+								policy.Generation,
+								status.Error2ConditionMsg(err))
+							continue
+						}
+					}
+				default: // HTTP routes}
+					targetedRoute, resolveErr = resolveSecurityPolicyRouteTargetRef(policy, currTarget, routeMap)
 				}
 				// Handle route based on its type
 				switch currTarget.Kind {
@@ -368,6 +387,18 @@ func getRouteProtocol(route RouteContext) ir.AppProtocol {
 	return ir.HTTP
 }
 
+// Determines if a route is HTTP or TCP based on its type.
+func getRouteProtocol(route RouteContext) ir.AppProtocol {
+	if route == nil {
+		return ir.HTTP // default to HTTP for nil routes
+	}
+
+	if r, ok := route.(*TCPRouteContext); ok && r != nil {
+		return ir.TCP
+	}
+	return ir.HTTP
+}
+
 // validateSecurityPolicy validates the SecurityPolicy.
 // It checks some constraints that are not covered by the CRD schema validation.
 func validateSecurityPolicy(p *egv1a1.SecurityPolicy) error {
@@ -402,6 +433,36 @@ func validateSecurityPolicy(p *egv1a1.SecurityPolicy) error {
 	if basicAuth != nil {
 		if err := validateBasicAuth(basicAuth); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateSecurityPolicyForTCP validates that the SecurityPolicy is valid for TCP routes.
+// Only authorization is allowed for TCP routes.
+func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
+	// For TCP routes, only authorization is supported
+	if p.Spec.CORS != nil ||
+		p.Spec.JWT != nil ||
+		p.Spec.OIDC != nil ||
+		p.Spec.APIKeyAuth != nil ||
+		p.Spec.BasicAuth != nil ||
+		p.Spec.ExtAuth != nil {
+		return fmt.Errorf("only authorization is supported for TCP routes")
+	}
+	// Additionally, verify that authorization is actually specified
+	if p.Spec.Authorization == nil {
+		return fmt.Errorf("authorization must be specified for TCP routes")
+	}
+	// For TCP routes, we need at least one rule with ClientCIDRs
+	if len(p.Spec.Authorization.Rules) == 0 {
+		return fmt.Errorf("at least one authorization rule must be specified for TCP routes")
+	}
+
+	// Check that each rule has at least one CIDR specified
+	for i, rule := range p.Spec.Authorization.Rules {
+		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) == 0 {
+			return fmt.Errorf("rule %d with Allow action must specify at least one ClientCIDR for TCP routes", i)
 		}
 	}
 	return nil
@@ -593,10 +654,106 @@ func resolveSecurityPolicyTCPRouteTargetRef(
 	return route.RouteContext, nil
 }
 
+func resolveSecurityPolicyTCPRouteTargetRef(
+	policy *egv1a1.SecurityPolicy,
+	target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName,
+	routes map[policyTargetRouteKey]*policyRouteTargetContext,
+) (RouteContext, *status.PolicyResolveError) {
+	key := policyTargetRouteKey{
+		Kind:      string(target.Kind),
+		Name:      string(target.Name),
+		Namespace: policy.Namespace,
+		Protocol:  ir.TCP,
+	}
+	route, ok := routes[key]
+	if !ok {
+		return nil, nil
+	}
+
+	if route.attached {
+		message := fmt.Sprintf(
+			"Unable to target TCPRoute %s, another SecurityPolicy has already attached to it",
+			string(target.Name),
+		)
+		return route.RouteContext, &status.PolicyResolveError{
+			Reason:  gwapiv1a2.PolicyReasonConflicted,
+			Message: message,
+		}
+	}
+
+	route.attached = true
+	routes[key] = route
+
+	return route.RouteContext, nil
+}
+
 func (t *Translator) translateSecurityPolicyForRoute(
 	policy *egv1a1.SecurityPolicy, route RouteContext,
 	resources *resource.Resources, xdsIR resource.XdsIRMap,
 ) error {
+	// Determine the protocol
+	protocol := getRouteProtocol(route)
+
+	// Validate the policy based on the protocol
+	if protocol == ir.TCP {
+		if err := validateSecurityPolicyForTCP(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy for TCP route: %w", err)
+		}
+	} else {
+		if err := validateSecurityPolicy(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy: %w", err)
+		}
+	}
+
+	// Build IR based on route type
+	var (
+		cors          *ir.CORS
+		apiKeyAuth    *ir.APIKeyAuth
+		basicAuth     *ir.BasicAuth
+		authorization *ir.Authorization
+		jwt           *ir.JWT
+		oidc          *ir.OIDC
+		extAuth       *ir.ExtAuth
+		err, errs     error
+	)
+
+	// Only build HTTP-specific features for HTTP routes
+	if protocol == ir.HTTP {
+		if policy.Spec.CORS != nil {
+			cors = t.buildCORS(policy.Spec.CORS)
+		}
+	// Determine the protocol
+	protocol := getRouteProtocol(route)
+
+	// Validate the policy based on the protocol
+	if protocol == ir.TCP {
+		if err := validateSecurityPolicyForTCP(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy for TCP route: %w", err)
+		}
+	} else {
+		if err := validateSecurityPolicy(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy: %w", err)
+		}
+	}
+
+	// Build IR based on route type
+	var (
+		cors               *ir.CORS
+		apiKeyAuth         *ir.APIKeyAuth
+		basicAuth          *ir.BasicAuth
+		authorization      *ir.Authorization
+		jwt                *ir.JWT
+		oidc               *ir.OIDC
+		extAuth            *ir.ExtAuth
+		err, errs          error
+		hasNonExtAuthError bool
+	)
+
+	// Only build HTTP-specific features for HTTP routes
+	if protocol == ir.HTTP {
+		if policy.Spec.CORS != nil {
+			cors = t.buildCORS(policy.Spec.CORS)
+		}
 	// Determine the protocol
 	protocol := getRouteProtocol(route)
 
@@ -646,9 +803,9 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	}
 
 	// Authorization works for both HTTP and TCP
+	// Authorization works for both HTTP and TCP
 	if policy.Spec.Authorization != nil {
-		if authorization, err = t.buildAuthorization(policy, protocol); err != nil {
-			err = perr.WithMessage(err, "Authorization")
+		if authorization, err = t.buildAuthorization(policy, protocol, protocol); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
@@ -658,6 +815,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	// Apply IR to all relevant routes
 	prefix := irRoutePrefix(route)
 	parentRefs := GetParentReferences(route)
+
 
 	for _, p := range parentRefs {
 		parentRefCtx := GetRouteParentContext(route, p)
@@ -770,6 +928,11 @@ func (t *Translator) translateSecurityPolicyForGateway(
 	resources *resource.Resources,
 	xdsIR resource.XdsIRMap,
 ) error {
+	// Validate the policy (Gateway policies only support HTTP features)
+	if err := validateSecurityPolicy(policy); err != nil {
+		return fmt.Errorf("invalid SecurityPolicy: %w", err)
+	}
+
 	// Validate the policy (Gateway policies only support HTTP features)
 	if err := validateSecurityPolicy(policy); err != nil {
 		return fmt.Errorf("invalid SecurityPolicy: %w", err)
