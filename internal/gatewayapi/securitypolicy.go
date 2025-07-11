@@ -115,14 +115,6 @@ func (t *Translator) ProcessSecurityPolicies(securityPolicies []*egv1a1.Security
 				case resource.KindTCPRoute:
 					targetedRoute, resolveErr = resolveSecurityPolicyTCPRouteTargetRef(policy, currTarget, routeMap)
 					if resolveErr == nil && targetedRoute != nil {
-						if err := validateSecurityPolicyForTCP(policy); err != nil {
-							status.SetTranslationErrorForPolicyAncestors(&policy.Status,
-								parentGateways,
-								t.GatewayControllerName,
-								policy.Generation,
-								status.Error2ConditionMsg(err))
-							continue
-						}
 						err := t.translateSecurityPolicyForRoute(policy, targetedRoute, resources, xdsIR)
 						if err != nil {
 							status.SetTranslationErrorForPolicyAncestors(&policy.Status,
@@ -602,6 +594,17 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	// Determine the protocol
 	protocol := getRouteProtocol(route)
 
+	// Validate the policy based on the protocol
+	if protocol == ir.TCP {
+		if err := validateSecurityPolicyForTCP(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy for TCP route: %w", err)
+		}
+	} else {
+		if err := validateSecurityPolicy(policy); err != nil {
+			return fmt.Errorf("invalid SecurityPolicy: %w", err)
+		}
+	}
+
 	// Build IR based on route type
 	var (
 		cors          *ir.CORS
@@ -733,6 +736,11 @@ func (t *Translator) translateSecurityPolicyForGateway(
 	resources *resource.Resources,
 	xdsIR resource.XdsIRMap,
 ) error {
+	// Validate the policy (Gateway policies only support HTTP features)
+	if err := validateSecurityPolicy(policy); err != nil {
+		return fmt.Errorf("invalid SecurityPolicy: %w", err)
+	}
+
 	// Build IR
 	var (
 		cors          *ir.CORS
