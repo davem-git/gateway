@@ -440,6 +440,8 @@ func validateSecurityPolicy(p *egv1a1.SecurityPolicy) error {
 
 // validateSecurityPolicyForTCP validates that the SecurityPolicy is valid for TCP routes.
 // Only authorization is allowed for TCP routes.
+// validateSecurityPolicyForTCP validates that the SecurityPolicy is valid for TCP routes.
+// Only authorization is allowed for TCP routes.
 func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 	// For TCP routes, only authorization is supported
 	if p.Spec.CORS != nil ||
@@ -459,10 +461,19 @@ func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 		return fmt.Errorf("at least one authorization rule must be specified for TCP routes")
 	}
 
-	// Check that each rule has at least one CIDR specified
+	// Check that each rule has at least one CIDR specified and no unsupported fields
 	for i, rule := range p.Spec.Authorization.Rules {
 		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) == 0 {
 			return fmt.Errorf("rule %d with Allow action must specify at least one ClientCIDR for TCP routes", i)
+		}
+
+		// JWT and Headers are not supported for TCP routes
+		if rule.Principal.JWT != nil {
+			return fmt.Errorf("rule %d: JWT is not supported for TCP routes", i)
+		}
+
+		if len(rule.Principal.Headers) > 0 {
+			return fmt.Errorf("rule %d: Headers are not supported for TCP routes", i)
 		}
 	}
 	return nil
