@@ -676,19 +676,28 @@ func (t *Translator) translateSecurityPolicyForRoute(
 				}
 			}
 
-			if policy.Spec.OIDC != nil {
-				if oidc, err = t.buildOIDC(policy, resources, gtwCtx.envoyProxy); err != nil {
-					err = perr.WithMessage(err, "OIDC")
-					errs = errors.Join(errs, err)
+		var oidc *ir.OIDC
+		if policy.Spec.OIDC != nil {
+			if oidc, err = t.buildOIDC(
+				policy,
+				resources,
+				gtwCtx.envoyProxy); err != nil {
+				err = perr.WithMessage(err, "OIDC")
+				errs = errors.Join(errs, err)
+				hasNonExtAuthError = true
 					hasNonExtAuthError = true
-				}
 			}
+		}
 
-			if policy.Spec.JWT != nil {
-				if jwt, err = t.buildJWT(policy, resources, gtwCtx.envoyProxy); err != nil {
-					err = perr.WithMessage(err, "JWT")
-					errs = errors.Join(errs, err)
-				}
+		var jwt *ir.JWT
+		if policy.Spec.JWT != nil {
+			if jwt, err = t.buildJWT(
+				policy,
+				resources,
+				gtwCtx.envoyProxy); err != nil {
+				err = perr.WithMessage(err, "JWT")
+				errs = errors.Join(errs, err)
+				hasNonExtAuthError = true
 				hasNonExtAuthError = true
 			}
 		}
@@ -715,15 +724,21 @@ func (t *Translator) translateSecurityPolicyForRoute(
 							}
 							if errs != nil {
 								// If there is only error for ext auth and ext auth is set to fail open, then skip the ext auth
+							// and allow the request to go through.
+							// Otherwise, return a 500 direct response to avoid unauthorized access.
+							shouldFailOpen := extAuthErr != nil && !hasNonExtAuthError && ptr.Deref(policy.Spec.ExtAuth.FailOpen, false)
+							if !shouldFailOpen {
+								// If there is only error for ext auth and ext auth is set to fail open, then skip the ext auth
 								// and allow the request to go through.
 								// Otherwise, return a 500 direct response to avoid unauthorized access.
 								shouldFailOpen := extAuthErr != nil && !hasNonExtAuthError && ptr.Deref(policy.Spec.ExtAuth.FailOpen, false)
 								if !shouldFailOpen {
 									// Return a 500 direct response to avoid unauthorized access
-									r.DirectResponse = &ir.CustomResponse{
-										StatusCode: ptr.To(uint32(500)),
+										r.DirectResponse = &ir.CustomResponse{
+											StatusCode: ptr.To(uint32(500)),
 									}
-								}
+									}
+							}
 							}
 						}
 					}
@@ -762,6 +777,15 @@ func (t *Translator) translateSecurityPolicyForGateway(
 
 	// Build IR
 	var (
+		cors                  *ir.CORS
+		jwt                   *ir.JWT
+		oidc                  *ir.OIDC
+		apiKeyAuth            *ir.APIKeyAuth
+		basicAuth             *ir.BasicAuth
+		extAuth               *ir.ExtAuth
+		authorization         *ir.Authorization
+		extAuthErr, err, errs error
+		hasNonExtAuthError    bool
 		cors                  *ir.CORS
 		jwt                   *ir.JWT
 		oidc                  *ir.OIDC
