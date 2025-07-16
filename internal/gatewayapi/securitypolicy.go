@@ -805,7 +805,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	// Authorization works for both HTTP and TCP
 	// Authorization works for both HTTP and TCP
 	if policy.Spec.Authorization != nil {
-		if authorization, err = t.buildAuthorization(policy, protocol, protocol); err != nil {
+		if authorization, err = t.buildAuthorization(policy, protocol); err != nil {
+			err = perr.WithMessage(err, "Authorization")
 			errs = errors.Join(errs, err)
 		}
 	}
@@ -855,7 +856,6 @@ func (t *Translator) translateSecurityPolicyForRoute(
 				gtwCtx.envoyProxy); err != nil {
 				err = perr.WithMessage(err, "JWT")
 				errs = errors.Join(errs, err)
-				hasNonExtAuthError = true
 				hasNonExtAuthError = true
 			}
 		}
