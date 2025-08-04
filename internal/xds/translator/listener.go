@@ -22,6 +22,7 @@ import (
 	tls_inspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	connection_limitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/connection_limit/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	rbacconfig "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/rbac/v3"
 	tcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	udpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	early_header_mutationv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/early_header_mutation/header_mutation/v3"
@@ -684,45 +685,11 @@ func (t *Translator) addXdsTCPFilterChain(
 
 	// Append port to the statPrefix.
 	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
-	al, error := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
-	if error != nil {
-		return error
-	}
-	mgr := &tcpv3.TcpProxy{
-		AccessLog:  al,
-		StatPrefix: statPrefix,
-		ClusterSpecifier: &tcpv3.TcpProxy_Cluster{
-			Cluster: clusterName,
-		},
-		HashPolicy: buildTCPProxyHashPolicy(irRoute.LoadBalancer),
-	}
 
-	if timeout != nil && timeout.TCP != nil {
-		if timeout.TCP.IdleTimeout != nil {
-			mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
-		}
-	}
-
-	var filters []*listenerv3.Filter
-
-	if connection != nil && connection.ConnectionLimit != nil {
-		cl := buildConnectionLimitFilter(statPrefix, connection)
-		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-			filters = append(filters, clf)
-		} else {
-			return err
-		}
-	}
-
-	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
-		filters = append(filters, mgrf)
-	} else {
+	// Build the filter chain using our new function
+	filterChain, err := buildTCPFilterChain(irRoute, clusterName, statPrefix, accesslog, timeout, connection)
+	if err != nil {
 		return err
-	}
-
-	filterChain := &listenerv3.FilterChain{
-		Name:    tlsListenerFilterChainName(irRoute),
-		Filters: filters,
 	}
 
 	if isTLSPassthrough {
@@ -826,7 +793,7 @@ func buildTCPFilterChain(
 	// Build the filter chain
 	filterChain := &listenerv3.FilterChain{
 		Filters: filters,
-		Name:    irRoute.Name,
+		Name:    tlsListenerFilterChainName(irRoute),
 	}
 
 	return filterChain, nil
