@@ -864,19 +864,23 @@ func (t *Translator) translateSecurityPolicyForRoute(
 						if tcpRoute.Name == expectedRouteName {
 							fmt.Printf("DEBUG: Found matching TCP route: %s\n", tcpRoute.Name)
 
-							// NEW: Check if filter chain matchers already exist for this route
-							routeAlreadyProcessed := false
+							// Check if filter chain matchers already exist for this route
 							expectedMatcherName := fmt.Sprintf("%s-route-%s", tcpListener.Name, tcpRoute.Name)
+							alreadyExists := false
+
+							fmt.Printf("DEBUG: Looking for existing matcher: %s\n", expectedMatcherName)
+							fmt.Printf("DEBUG: Current FilterChainMatchers count: %d\n", len(tcpListener.FilterChainMatchers))
 
 							for _, existingMatcher := range tcpListener.FilterChainMatchers {
+								fmt.Printf("DEBUG: Checking existing matcher: %s\n", existingMatcher.FilterChain.Name)
 								if existingMatcher.FilterChain.Name == expectedMatcherName {
 									fmt.Printf("DEBUG: Filter chain matcher already exists: %s\n", expectedMatcherName)
-									routeAlreadyProcessed = true
+									alreadyExists = true
 									break
 								}
 							}
 
-							if !routeAlreadyProcessed {
+							if !alreadyExists {
 								matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
 								if matchers != nil {
 									fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
@@ -890,6 +894,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 								} else {
 									fmt.Printf("DEBUG: No filter chain matchers built\n")
 								}
+							} else {
+								fmt.Printf("DEBUG: Skipping - matcher already exists\n")
 							}
 						}
 					}
