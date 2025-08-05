@@ -841,6 +841,10 @@ func (t *Translator) translateSecurityPolicyForRoute(
 		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
 		fmt.Printf("DEBUG: Authorization rules count: %d\n", len(authorization.Rules))
 
+		fmt.Printf("DEBUG: shouldUseFilterChainMatchers returned: %t\n", shouldUseFilterChainMatchers(authorization))
+		fmt.Printf("DEBUG: Authorization rules: %+v\n", authorization.Rules)
+		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
+
 		parentRefs := GetParentReferences(route)
 		fmt.Printf("DEBUG: Parent refs count: %d\n", len(parentRefs))
 
@@ -885,7 +889,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 			}
 		}
 		// Return early for TCP routes since we've handled them above
-		// return errs
+		return errs
 	}
 
 	// Handle HTTP routes (existing logic from your previous version)
