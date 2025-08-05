@@ -841,10 +841,6 @@ func (t *Translator) translateSecurityPolicyForRoute(
 		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
 		fmt.Printf("DEBUG: Authorization rules count: %d\n", len(authorization.Rules))
 
-		fmt.Printf("DEBUG: shouldUseFilterChainMatchers returned: %t\n", shouldUseFilterChainMatchers(authorization))
-		fmt.Printf("DEBUG: Authorization rules: %+v\n", authorization.Rules)
-		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
-
 		parentRefs := GetParentReferences(route)
 		fmt.Printf("DEBUG: Parent refs count: %d\n", len(parentRefs))
 
@@ -868,24 +864,36 @@ func (t *Translator) translateSecurityPolicyForRoute(
 						if tcpRoute.Name == expectedRouteName {
 							fmt.Printf("DEBUG: Found matching TCP route: %s\n", tcpRoute.Name)
 
-							matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
-							if matchers != nil {
-								fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
+							// NEW: Check if filter chain matchers already exist for this route
+							routeAlreadyProcessed := false
+							expectedMatcherName := fmt.Sprintf("%s-route-%s", tcpListener.Name, tcpRoute.Name)
 
-								if tcpListener.FilterChainMatchers == nil {
-									tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
+							for _, existingMatcher := range tcpListener.FilterChainMatchers {
+								if existingMatcher.FilterChain.Name == expectedMatcherName {
+									fmt.Printf("DEBUG: Filter chain matcher already exists: %s\n", expectedMatcherName)
+									routeAlreadyProcessed = true
+									break
 								}
-								tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
+							}
 
-								fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
-							} else {
-								fmt.Printf("DEBUG: No filter chain matchers built\n")
+							if !routeAlreadyProcessed {
+								matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
+								if matchers != nil {
+									fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
+
+									if tcpListener.FilterChainMatchers == nil {
+										tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
+									}
+									tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
+
+									fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
+								} else {
+									fmt.Printf("DEBUG: No filter chain matchers built\n")
+								}
 							}
 						}
 					}
 				}
-			} else {
-				fmt.Printf("DEBUG: No gateway context found\n")
 			}
 		}
 		// Return early for TCP routes since we've handled them above
