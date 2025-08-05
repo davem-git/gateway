@@ -837,27 +837,50 @@ func (t *Translator) translateSecurityPolicyForRoute(
 
 	// NEW: Handle TCP routes with filter chain matchers BEFORE the main parentRefs loop
 	if getRouteProtocol(route) == ir.TCP && authorization != nil && shouldUseFilterChainMatchers(authorization) {
+		// DEBUG: Add logging
+		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
+		fmt.Printf("DEBUG: Authorization rules count: %d\n", len(authorization.Rules))
+
 		parentRefs := GetParentReferences(route)
+		fmt.Printf("DEBUG: Parent refs count: %d\n", len(parentRefs))
+
 		if len(parentRefs) > 0 {
 			parentRefCtx := GetRouteParentContext(route, parentRefs[0])
 			if gtwCtx := parentRefCtx.GetGateway(); gtwCtx != nil {
 				irKey := t.getIRKey(gtwCtx.Gateway)
 				x := xdsIR[irKey]
 
+				fmt.Printf("DEBUG: Found gateway context, irKey: %s\n", irKey)
+				fmt.Printf("DEBUG: TCP listeners count: %d\n", len(x.TCP))
+
 				// Find and update TCP listeners
 				for _, tcpListener := range x.TCP {
+					fmt.Printf("DEBUG: Checking TCP listener: %s, routes count: %d\n", tcpListener.Name, len(tcpListener.Routes))
+
 					for _, tcpRoute := range tcpListener.Routes {
+						fmt.Printf("DEBUG: Checking TCP route: %s against target: %s\n", tcpRoute.Name, route.GetName())
+
 						if tcpRoute.Name == route.GetName() {
+							fmt.Printf("DEBUG: Found matching TCP route: %s\n", tcpRoute.Name)
+
 							matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
-							if matchers != nil { // ← Add nil check since function can return nil
+							if matchers != nil {
+								fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
+
 								if tcpListener.FilterChainMatchers == nil {
 									tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
 								}
 								tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
+
+								fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
+							} else {
+								fmt.Printf("DEBUG: No filter chain matchers built\n")
 							}
 						}
 					}
 				}
+			} else {
+				fmt.Printf("DEBUG: No gateway context found\n")
 			}
 		}
 		// Return early for TCP routes since we've handled them above
@@ -914,20 +937,31 @@ func (t *Translator) translateSecurityPolicyForRoute(
 
 		// Handle regular TCP routes (non-filter-chain-matcher path)
 		if getRouteProtocol(route) == ir.TCP {
+			// DEBUG: Add logging for fallback TCP processing
+			fmt.Printf("DEBUG: Processing TCP route %s/%s in fallback mode (no filter chain matchers)\n", route.GetNamespace(), route.GetName())
+
 			// For TCP routes, apply to TCP listeners
 			for _, listener := range parentRefCtx.listeners {
 				irListener := xdsIR[irKey].GetTCPListener(irListenerName(listener))
 				if irListener != nil {
+					fmt.Printf("DEBUG: Found TCP listener: %s\n", irListener.Name)
+
 					// For TCP routes, we need exact route name matching (not prefix)
 					expectedRouteName := strings.TrimSuffix(prefix, "/")
+					fmt.Printf("DEBUG: Expected route name: %s, prefix: %s\n", expectedRouteName, prefix)
 
 					for _, r := range irListener.Routes {
+						fmt.Printf("DEBUG: Checking route: %s against expected: %s\n", r.Name, expectedRouteName)
+
 						if r.Name == expectedRouteName && r.Security == nil {
+							fmt.Printf("DEBUG: Applying security to TCP route: %s\n", r.Name)
 							r.Security = &ir.SecurityFeatures{
 								Authorization: authorization,
 							}
 						}
 					}
+				} else {
+					fmt.Printf("DEBUG: No TCP listener found for: %s\n", irListenerName(listener))
 				}
 			}
 		} else {
@@ -971,6 +1005,45 @@ func (t *Translator) translateSecurityPolicyForRoute(
 		}
 	}
 	return errs
+}
+
+// Also add debug logging to buildFilterChainMatchersForRoute
+func (t *Translator) buildFilterChainMatchersForRoute(
+	authorization *ir.Authorization,
+	tcpListener *ir.TCPListener,
+	tcpRoute *ir.TCPRoute,
+) []*ir.FilterChainMatcher {
+	var matchers []*ir.FilterChainMatcher
+
+	// Group authorization rules by action and IP ranges
+	allowRules := make([]*ir.AuthorizationRule, 0)
+	for _, rule := range authorization.Rules {
+		fmt.Printf("DEBUG: Processing rule with action: %s, ClientCIDRs count: %d\n", rule.Action, len(rule.Principal.ClientCIDRs))
+
+		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) > 0 {
+			allowRules = append(allowRules, rule)
+			fmt.Printf("DEBUG: Added rule to allowRules, total count: %d\n", len(allowRules))
+		}
+	}
+
+	if len(allowRules) == 0 {
+		fmt.Printf("DEBUG: No IP-based allow rules found\n")
+		return nil // No IP-based allow rules
+	}
+
+	// Create a filter chain matcher for this specific route
+	matcher := &ir.FilterChainMatcher{
+		AuthorizationRules: allowRules,
+		FilterChain: &ir.FilterChain{
+			Name:          fmt.Sprintf("%s-route-%s", tcpListener.Name, tcpRoute.Name),
+			Authorization: authorization,
+		},
+	}
+
+	matchers = append(matchers, matcher)
+	fmt.Printf("DEBUG: Created filter chain matcher: %s\n", matcher.FilterChain.Name)
+
+	return matchers
 }
 
 func (t *Translator) translateSecurityPolicyForGateway(
