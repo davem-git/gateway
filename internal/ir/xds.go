@@ -1987,6 +1987,26 @@ type TCPListener struct {
 	Connection *ClientConnection `json:"connection,omitempty" yaml:"connection,omitempty"`
 	// Routes associated with TCP traffic to the listener.
 	Routes []*TCPRoute `json:"routes,omitempty" yaml:"routes,omitempty"`
+	// Security holds the features associated with SecurityPolicy
+	Security *SecurityFeatures `json:"security,omitempty" yaml:"security,omitempty"`
+	// FilterChainMatchers holds the filter chain matchers associated with the listener.
+	FilterChainMatchers []*FilterChainMatcher `json:"filterChainMatchers,omitempty"`
+}
+
+// FilterChain represents a network filter chain configuration for TCP
+// +k8s:deepcopy-gen=true
+type FilterChain struct {
+	// Name of the filter chain
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+	// Authorization rules that apply to this filter chain
+	Authorization *Authorization `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+}
+
+// FilterChainMatcher represents a filter chain matcher configuration for TCP
+// +k8s:deepcopy-gen=true
+type FilterChainMatcher struct {
+	AuthorizationRules []*AuthorizationRule `json:"authorizationRules,omitempty"`
+	FilterChain        *FilterChain         `json:"filterChain,omitempty"`
 }
 
 // TCPRoute holds the route information associated with the TCP Route
@@ -2014,6 +2034,8 @@ type TCPRoute struct {
 	BackendConnection *BackendConnection `json:"backendConnection,omitempty" yaml:"backendConnection,omitempty"`
 	// DNS is used to configure how DNS resolution is handled for the route
 	DNS *DNS `json:"dns,omitempty" yaml:"dns,omitempty"`
+	// Security holds the features associated with SecurityPolicy
+	Security *SecurityFeatures `json:"security,omitempty" yaml:"security,omitempty"`
 }
 
 // TLS holds information for configuring TLS on a listener

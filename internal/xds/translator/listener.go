@@ -661,59 +661,27 @@ func hasHCMInDefaultFilterChain(xdsListener *listenerv3.Listener) bool {
 }
 
 func (t *Translator) addXdsTCPFilterChain(
-	xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute, clusterName string,
-	accesslog *ir.AccessLog, timeout *ir.ClientTimeout, connection *ir.ClientConnection,
+	xdsListener *listenerv3.Listener,
+	irRoute *ir.TCPRoute,
+	clusterName string,
+	accesslog *ir.AccessLog,
+	timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection,
+	parentTCPListener *ir.TCPListener,
 ) error {
 	if irRoute == nil {
 		return errors.New("tcp listener is nil")
 	}
 
-	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
-	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
-	statPrefix := "tcp"
-	if isTLSPassthrough {
-		statPrefix = "tls-passthrough"
+	// Use the passed parent listener instead of trying to find it
+	if parentTCPListener != nil && len(parentTCPListener.FilterChainMatchers) > 0 {
+		return t.handleFilterChainMatchers(xdsListener, irRoute, clusterName, parentTCPListener, accesslog, timeout, connection)
 	}
 
-	if isTLSTerminate {
-		statPrefix = "tls-terminate"
-	}
-
-	// Append port to the statPrefix.
-	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
-	al, error := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
-	if error != nil {
-		return error
-	}
-	mgr := &tcpv3.TcpProxy{
-		AccessLog:  al,
-		StatPrefix: statPrefix,
-		ClusterSpecifier: &tcpv3.TcpProxy_Cluster{
-			Cluster: clusterName,
-		},
-		HashPolicy: buildTCPProxyHashPolicy(irRoute.LoadBalancer),
-	}
-
-	if timeout != nil && timeout.TCP != nil {
-		if timeout.TCP.IdleTimeout != nil {
-			mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
-		}
-	}
-
-	var filters []*listenerv3.Filter
-
-	if connection != nil && connection.ConnectionLimit != nil {
-		cl := buildConnectionLimitFilter(statPrefix, connection)
-		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
-			filters = append(filters, clf)
-		} else {
-			return err
-		}
-	}
-
-	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
-		filters = append(filters, mgrf)
-	} else {
+	// EXISTING: Fall back to regular filter chain building using helper functions
+	statPrefix := t.buildTCPStatPrefix(irRoute, xdsListener)
+	filters, err := t.buildTCPFilters(irRoute, clusterName, statPrefix, accesslog, timeout, connection)
+	if err != nil {
 		return err
 	}
 
@@ -722,25 +690,9 @@ func (t *Translator) addXdsTCPFilterChain(
 		Filters: filters,
 	}
 
-	if isTLSPassthrough {
-		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
-			return err
-		}
-	}
-
-	if isTLSTerminate {
-		var snis []string
-		if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
-			snis = cfg.SNIs
-		}
-		if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
-			return err
-		}
-		tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
-		if err != nil {
-			return err
-		}
-		filterChain.TransportSocket = tSocket
+	// Configure TLS using helper function
+	if err := t.configureTLSForFilterChain(filterChain, irRoute, xdsListener); err != nil {
+		return err
 	}
 
 	xdsListener.FilterChains = append(xdsListener.FilterChains, filterChain)
@@ -1198,4 +1150,174 @@ func buildSetCurrentClientCertDetails(in *ir.HeaderSettings) *hcmv3.HttpConnecti
 	}
 
 	return clientCertDetails
+}
+
+func (t *Translator) handleFilterChainMatchers(
+	xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute, clusterName string,
+	tcpListener *ir.TCPListener, accesslog *ir.AccessLog, timeout *ir.ClientTimeout, connection *ir.ClientConnection,
+) error {
+	// Use the helper functions from Chunk 1
+	statPrefix := t.buildTCPStatPrefix(irRoute, xdsListener)
+
+	// Process each matcher (could be multiple for different IP groups)
+	for _, matcher := range tcpListener.FilterChainMatchers {
+		// Create a filter chain with source IP filtering
+		xdsFilterChain := &listenerv3.FilterChain{
+			Name:             matcher.FilterChain.Name,
+			FilterChainMatch: &listenerv3.FilterChainMatch{},
+		}
+
+		// REPLACE THIS SECTION: Use the helper function instead of duplicating logic
+		ranges := t.convertAuthRulesToIPRanges(matcher.AuthorizationRules)
+		xdsFilterChain.FilterChainMatch.SourcePrefixRanges = ranges
+
+		// Build TCP filters (without RBAC) using helper from Chunk 1
+		filters, err := t.buildTCPFilters(irRoute, clusterName, statPrefix, accesslog, timeout, connection)
+		if err != nil {
+			return err
+		}
+		xdsFilterChain.Filters = filters
+
+		// Configure TLS if needed using helper from Chunk 1
+		if err := t.configureTLSForFilterChain(xdsFilterChain, irRoute, xdsListener); err != nil {
+			return err
+		}
+
+		// Add this filter chain to the listener
+		xdsListener.FilterChains = append(xdsListener.FilterChains, xdsFilterChain)
+	}
+
+	return nil
+}
+
+// buildTCPStatPrefix creates a consistent stat prefix for TCP filter chains
+func (t *Translator) buildTCPStatPrefix(irRoute *ir.TCPRoute, xdsListener *listenerv3.Listener) string {
+	statPrefix := "tcp"
+
+	// Determine if this is TLS passthrough or terminate
+	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
+	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
+
+	if isTLSPassthrough {
+		statPrefix = "tls-passthrough"
+	} else if isTLSTerminate {
+		statPrefix = "tls-terminate"
+	}
+
+	// Append port to the statPrefix
+	port := int(xdsListener.Address.GetSocketAddress().GetPortValue())
+	return strings.Join([]string{statPrefix, strconv.Itoa(port)}, "-")
+}
+
+// buildTCPFilters builds the TCP filters for a filter chain
+func (t *Translator) buildTCPFilters(
+	irRoute *ir.TCPRoute,
+	clusterName string,
+	statPrefix string,
+	accesslog *ir.AccessLog,
+	timeout *ir.ClientTimeout,
+	connection *ir.ClientConnection,
+) ([]*listenerv3.Filter, error) {
+	// Build access logs
+	al, err := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build TCP proxy
+	mgr := &tcpv3.TcpProxy{
+		AccessLog:  al,
+		StatPrefix: statPrefix,
+		ClusterSpecifier: &tcpv3.TcpProxy_Cluster{
+			Cluster: clusterName,
+		},
+		HashPolicy: buildTCPProxyHashPolicy(irRoute.LoadBalancer),
+	}
+
+	// Add timeout configuration
+	if timeout != nil && timeout.TCP != nil && timeout.TCP.IdleTimeout != nil {
+		mgr.IdleTimeout = durationpb.New(timeout.TCP.IdleTimeout.Duration)
+	}
+
+	var filters []*listenerv3.Filter
+
+	// Add connection limit filter if specified
+	if connection != nil && connection.ConnectionLimit != nil {
+		cl := buildConnectionLimitFilter(statPrefix, connection)
+		if clf, err := toNetworkFilter(networkConnectionLimit, cl); err == nil {
+			filters = append(filters, clf)
+		} else {
+			return nil, err
+		}
+	}
+
+	// Add TCP proxy filter
+	if mgrf, err := toNetworkFilter(wellknown.TCPProxy, mgr); err == nil {
+		filters = append(filters, mgrf)
+	} else {
+		return nil, err
+	}
+
+	return filters, nil
+}
+
+// configureTLSForFilterChain handles TLS configuration for a filter chain
+func (t *Translator) configureTLSForFilterChain(
+	filterChain *listenerv3.FilterChain,
+	irRoute *ir.TCPRoute,
+	xdsListener *listenerv3.Listener,
+) error {
+	isTLSPassthrough := irRoute.TLS != nil && irRoute.TLS.TLSInspectorConfig != nil
+	isTLSTerminate := irRoute.TLS != nil && irRoute.TLS.Terminate != nil
+
+	if isTLSPassthrough {
+		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
+			return err
+		}
+	}
+
+	if isTLSTerminate {
+		var snis []string
+		if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
+			snis = cfg.SNIs
+		}
+		if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
+			return err
+		}
+		tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)
+		if err != nil {
+			return err
+		}
+		filterChain.TransportSocket = tSocket
+	}
+
+	return nil
+}
+
+// convertAuthRulesToIPRanges converts authorization rules to Envoy CIDR ranges
+func (t *Translator) convertAuthRulesToIPRanges(rules []*ir.AuthorizationRule) []*corev3.CidrRange {
+	var ranges []*corev3.CidrRange
+
+	for _, rule := range rules {
+		if rule.Action == egv1a1.AuthorizationActionAllow {
+			for _, cidrMatch := range rule.Principal.ClientCIDRs {
+				// Parse the CIDR string to get IP and network
+				_, ipNet, err := net.ParseCIDR(cidrMatch.CIDR) // ← Use cidrMatch.CIDR instead of string(*cidrMatch)
+				if err != nil {
+					// Skip invalid CIDR ranges
+					continue
+				}
+
+				ones, bits := ipNet.Mask.Size()
+				if bits == 32 || bits == 128 { // IPv4 or IPv6
+					ranges = append(ranges, &corev3.CidrRange{
+						AddressPrefix: ipNet.IP.String(),
+						PrefixLen:     &wrapperspb.UInt32Value{Value: uint32(ones)},
+					})
+				}
+			}
+		}
+	}
+
+	return ranges
 }
