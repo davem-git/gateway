@@ -885,7 +885,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 			}
 		}
 		// Return early for TCP routes since we've handled them above
-		return errs
+		// return errs
 	}
 
 	// Handle HTTP routes (existing logic from your previous version)
