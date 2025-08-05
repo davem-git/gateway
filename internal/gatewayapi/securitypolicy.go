@@ -836,6 +836,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	hasNonExtAuthError = errs != nil
 
 	// NEW: Handle TCP routes with filter chain matchers BEFORE the main parentRefs loop
+	// NEW: Handle TCP routes with filter chain matchers BEFORE the main parentRefs loop
 	if getRouteProtocol(route) == ir.TCP && authorization != nil && shouldUseFilterChainMatchers(authorization) {
 		// DEBUG: Add logging
 		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
@@ -864,38 +865,31 @@ func (t *Translator) translateSecurityPolicyForRoute(
 						if tcpRoute.Name == expectedRouteName {
 							fmt.Printf("DEBUG: Found matching TCP route: %s\n", tcpRoute.Name)
 
-							// Check if filter chain matchers already exist for this route
-							expectedMatcherName := fmt.Sprintf("%s-route-%s", tcpListener.Name, tcpRoute.Name)
-							alreadyExists := false
-
-							fmt.Printf("DEBUG: Looking for existing matcher: %s\n", expectedMatcherName)
-							fmt.Printf("DEBUG: Current FilterChainMatchers count: %d\n", len(tcpListener.FilterChainMatchers))
-
-							for _, existingMatcher := range tcpListener.FilterChainMatchers {
-								fmt.Printf("DEBUG: Checking existing matcher: %s\n", existingMatcher.FilterChain.Name)
-								if existingMatcher.FilterChain.Name == expectedMatcherName {
-									fmt.Printf("DEBUG: Filter chain matcher already exists: %s\n", expectedMatcherName)
-									alreadyExists = true
-									break
-								}
+							// NEW: Check if this route already has security applied via filter chain matchers
+							// If it does, skip to avoid infinite loops
+							if tcpRoute.Security != nil {
+								fmt.Printf("DEBUG: TCP route already has security applied, skipping filter chain matcher creation\n")
+								continue
 							}
 
-							if !alreadyExists {
-								matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
-								if matchers != nil {
-									fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
+							matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
+							if matchers != nil {
+								fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
 
-									if tcpListener.FilterChainMatchers == nil {
-										tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
-									}
-									tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
+								if tcpListener.FilterChainMatchers == nil {
+									tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
+								}
+								tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
 
-									fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
-								} else {
-									fmt.Printf("DEBUG: No filter chain matchers built\n")
+								fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
+
+								// NEW: Mark the route as processed by adding minimal security
+								// This prevents infinite loops while preserving filter chain matcher functionality
+								tcpRoute.Security = &ir.SecurityFeatures{
+									// Don't add Authorization here - that's handled by filter chain matchers
 								}
 							} else {
-								fmt.Printf("DEBUG: Skipping - matcher already exists\n")
+								fmt.Printf("DEBUG: No filter chain matchers built\n")
 							}
 						}
 					}
