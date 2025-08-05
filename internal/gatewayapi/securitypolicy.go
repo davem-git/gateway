@@ -1007,45 +1007,6 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	return errs
 }
 
-// Also add debug logging to buildFilterChainMatchersForRoute
-func (t *Translator) buildFilterChainMatchersForRoute(
-	authorization *ir.Authorization,
-	tcpListener *ir.TCPListener,
-	tcpRoute *ir.TCPRoute,
-) []*ir.FilterChainMatcher {
-	var matchers []*ir.FilterChainMatcher
-
-	// Group authorization rules by action and IP ranges
-	allowRules := make([]*ir.AuthorizationRule, 0)
-	for _, rule := range authorization.Rules {
-		fmt.Printf("DEBUG: Processing rule with action: %s, ClientCIDRs count: %d\n", rule.Action, len(rule.Principal.ClientCIDRs))
-
-		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) > 0 {
-			allowRules = append(allowRules, rule)
-			fmt.Printf("DEBUG: Added rule to allowRules, total count: %d\n", len(allowRules))
-		}
-	}
-
-	if len(allowRules) == 0 {
-		fmt.Printf("DEBUG: No IP-based allow rules found\n")
-		return nil // No IP-based allow rules
-	}
-
-	// Create a filter chain matcher for this specific route
-	matcher := &ir.FilterChainMatcher{
-		AuthorizationRules: allowRules,
-		FilterChain: &ir.FilterChain{
-			Name:          fmt.Sprintf("%s-route-%s", tcpListener.Name, tcpRoute.Name),
-			Authorization: authorization,
-		},
-	}
-
-	matchers = append(matchers, matcher)
-	fmt.Printf("DEBUG: Created filter chain matcher: %s\n", matcher.FilterChain.Name)
-
-	return matchers
-}
-
 func (t *Translator) translateSecurityPolicyForGateway(
 	policy *egv1a1.SecurityPolicy,
 	gateway *GatewayContext,
@@ -2071,24 +2032,27 @@ func shouldUseFilterChainMatchers(auth *ir.Authorization) bool {
 }
 
 // buildFilterChainMatchersForRoute creates filter chain matchers specific to a single TCP route
+// Also add debug logging to buildFilterChainMatchersForRoute
 func (t *Translator) buildFilterChainMatchersForRoute(
 	authorization *ir.Authorization,
 	tcpListener *ir.TCPListener,
 	tcpRoute *ir.TCPRoute,
 ) []*ir.FilterChainMatcher {
-	// Remove error return since we're not actually returning errors
-
 	var matchers []*ir.FilterChainMatcher
 
 	// Group authorization rules by action and IP ranges
 	allowRules := make([]*ir.AuthorizationRule, 0)
 	for _, rule := range authorization.Rules {
+		fmt.Printf("DEBUG: Processing rule with action: %s, ClientCIDRs count: %d\n", rule.Action, len(rule.Principal.ClientCIDRs))
+
 		if rule.Action == egv1a1.AuthorizationActionAllow && len(rule.Principal.ClientCIDRs) > 0 {
 			allowRules = append(allowRules, rule)
+			fmt.Printf("DEBUG: Added rule to allowRules, total count: %d\n", len(allowRules))
 		}
 	}
 
 	if len(allowRules) == 0 {
+		fmt.Printf("DEBUG: No IP-based allow rules found\n")
 		return nil // No IP-based allow rules
 	}
 
@@ -2102,6 +2066,8 @@ func (t *Translator) buildFilterChainMatchersForRoute(
 	}
 
 	matchers = append(matchers, matcher)
+	fmt.Printf("DEBUG: Created filter chain matcher: %s\n", matcher.FilterChain.Name)
+
 	return matchers
 }
 
