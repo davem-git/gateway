@@ -860,7 +860,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 					for _, tcpRoute := range tcpListener.Routes {
 						fmt.Printf("DEBUG: Checking TCP route: %s against target: %s\n", tcpRoute.Name, route.GetName())
 
-						if tcpRoute.Name == route.GetName() {
+						expectedRouteName := fmt.Sprintf("tcproute/%s/%s", route.GetNamespace(), route.GetName())
+						if tcpRoute.Name == expectedRouteName {
 							fmt.Printf("DEBUG: Found matching TCP route: %s\n", tcpRoute.Name)
 
 							matchers := t.buildFilterChainMatchersForRoute(authorization, tcpListener, tcpRoute)
@@ -947,8 +948,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 					fmt.Printf("DEBUG: Found TCP listener: %s\n", irListener.Name)
 
 					// For TCP routes, we need exact route name matching (not prefix)
-					expectedRouteName := strings.TrimSuffix(prefix, "/")
-					fmt.Printf("DEBUG: Expected route name: %s, prefix: %s\n", expectedRouteName, prefix)
+					expectedRouteName := fmt.Sprintf("tcproute/%s/%s", route.GetNamespace(), route.GetName())
+					fmt.Printf("DEBUG: Expected route name: %s\n", expectedRouteName)
 
 					for _, r := range irListener.Routes {
 						fmt.Printf("DEBUG: Checking route: %s against expected: %s\n", r.Name, expectedRouteName)
