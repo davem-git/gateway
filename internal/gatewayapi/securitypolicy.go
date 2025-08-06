@@ -362,7 +362,6 @@ func (t *Translator) processSecurityPolicyForTCPRoute(
 			policy.Generation,
 			status.Error2ConditionMsg(err),
 		)
-		return
 	}
 
 	// Set Accepted condition
@@ -836,7 +835,6 @@ func (t *Translator) translateSecurityPolicyForRoute(
 	hasNonExtAuthError = errs != nil
 
 	// NEW: Handle TCP routes with filter chain matchers BEFORE the main parentRefs loop
-	// NEW: Handle TCP routes with filter chain matchers BEFORE the main parentRefs loop
 	if getRouteProtocol(route) == ir.TCP && authorization != nil && shouldUseFilterChainMatchers(authorization) {
 		// DEBUG: Add logging
 		fmt.Printf("DEBUG: Processing TCP route %s/%s with filter chain matchers\n", route.GetNamespace(), route.GetName())
@@ -876,10 +874,22 @@ func (t *Translator) translateSecurityPolicyForRoute(
 							if matchers != nil {
 								fmt.Printf("DEBUG: Built %d filter chain matchers\n", len(matchers))
 
-								if tcpListener.FilterChainMatchers == nil {
-									tcpListener.FilterChainMatchers = make([]*ir.FilterChainMatcher, 0)
+								// Only add filter chain matcher if not already present
+								for _, matcher := range matchers {
+									alreadyExists := false
+									for _, existing := range tcpListener.FilterChainMatchers {
+										if existing.FilterChain.Name == matcher.FilterChain.Name {
+											alreadyExists = true
+											break
+										}
+									}
+									if !alreadyExists {
+										tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matcher)
+										fmt.Printf("DEBUG: Added filter chain matcher: %s\n", matcher.FilterChain.Name)
+									} else {
+										fmt.Printf("DEBUG: Filter chain matcher already exists: %s, skipping\n", matcher.FilterChain.Name)
+									}
 								}
-								tcpListener.FilterChainMatchers = append(tcpListener.FilterChainMatchers, matchers...)
 
 								fmt.Printf("DEBUG: Total filter chain matchers now: %d\n", len(tcpListener.FilterChainMatchers))
 
