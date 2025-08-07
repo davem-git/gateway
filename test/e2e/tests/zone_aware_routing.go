@@ -3,8 +3,7 @@
 // The full text of the Apache license is available in the LICENSE file at
 // the root of the repo.
 
-//go:build e2e
-//go:build disable_zone_aware_routin
+//go:build disable_zone_aware_routing
 
 package tests
 

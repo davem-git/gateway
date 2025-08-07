@@ -67,7 +67,7 @@ func TestE2E(t *testing.T) {
 		skipTests = append(skipTests,
 			tests.HTTPWasmTest.ShortName,
 			tests.OCIWasmTest.ShortName,
-			tests.ZoneAwareRoutingTest.ShortName,
+			// tests.ZoneAwareRoutingTest.ShortName,
 		)
 	}
 
