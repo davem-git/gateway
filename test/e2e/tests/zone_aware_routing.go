@@ -4,6 +4,7 @@
 // the root of the repo.
 
 //go:build e2e
+//go:build disable_zone_aware_routin
 
 package tests
 
