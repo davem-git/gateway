@@ -1000,6 +1000,7 @@ func (t *Translator) translateSecurityPolicyForRoute(
 							sectionMatch = (string(*target.SectionName) == r.Metadata.SectionName)
 						}
 						if strings.HasPrefix(r.Name, prefix) && sectionMatch && r.Security == nil {
+							fmt.Printf("DEBUG: Applying SecurityPolicy to HTTP route: %s\n", r.Name)
 							r.Security = &ir.SecurityFeatures{
 								CORS:          cors,
 								JWT:           jwt,
@@ -1009,6 +1010,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 								ExtAuth:       extAuth,
 								Authorization: authorization,
 							}
+							fmt.Printf("DEBUG: HTTPROUTE Route security after: %v\n", r.Security)
+
 							if errs != nil {
 								// If there is only error for ext auth and ext auth is set to fail open, then skip the ext auth
 								// and allow the request to go through.
