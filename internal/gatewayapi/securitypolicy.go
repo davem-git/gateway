@@ -2096,18 +2096,3 @@ func (t *Translator) buildFilterChainMatchersForRoute(
 
 	return matchers
 }
-
-func parseCIDR(cidr string) (*ir.CIDRMatch, error) {
-	_, ipNet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid CIDR: %s", cidr)
-	}
-
-	ones, bits := ipNet.Mask.Size()
-	return &ir.CIDRMatch{
-		CIDR:    cidr,
-		IP:      ipNet.IP.String(),
-		MaskLen: uint32(ones),
-		IsIPv6:  bits == 128,
-	}, nil
-}

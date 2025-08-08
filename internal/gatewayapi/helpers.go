@@ -8,6 +8,7 @@ package gatewayapi
 import (
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 
@@ -515,6 +516,21 @@ func listenersWithSameHTTPPort(xdsIR *ir.Xds, listener *ir.HTTPListener) []strin
 		}
 	}
 	return res
+}
+
+func parseCIDR(cidr string) (*ir.CIDRMatch, error) {
+	ip, ipn, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	mask, _ := ipn.Mask.Size()
+	return &ir.CIDRMatch{
+		CIDR:    ipn.String(),
+		IP:      ip.String(),
+		MaskLen: uint32(mask),
+		IsIPv6:  ip.To4() == nil,
+	}, nil
 }
 
 func irConfigName(policy client.Object) string {
