@@ -37,10 +37,11 @@ var TCPRouteAuthzWithClientIP = suite.ConformanceTest{
 		GatewayAndTCPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, NewGatewayRef(gwNN), tcpRouteNN)
 
 		ancestorRef := gwapiv1a2.ParentReference{
-			Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-			Kind:      gatewayapi.KindPtr(resource.KindGateway),
-			Namespace: gatewayapi.NamespacePtr(gwNN.Namespace),
-			Name:      gwapiv1.ObjectName(gwNN.Name),
+			Group:       gatewayapi.GroupPtr(gwapiv1.GroupName),
+			Kind:        gatewayapi.KindPtr(resource.KindGateway),
+			Namespace:   gatewayapi.NamespacePtr(gwNN.Namespace),
+			Name:        gwapiv1.ObjectName(gwNN.Name),
+			SectionName: (*gwapiv1.SectionName)(&[]gwapiv1.SectionName{"ip"}[0]),
 		}
 		SecurityPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "tcp-backend-authorization-ip-security-policy", Namespace: ns}, suite.ControllerName, ancestorRef)
 
@@ -62,7 +63,8 @@ func testTCPRouteWithBackendBlocked(t *testing.T, suite *suite.ConformanceTestSu
 
 func testTCPConnectionBlocked(t *testing.T, gwAddr string) {
 	// Try to establish a raw TCP connection
-	conn, err := net.DialTimeout("tcp", gwAddr, 5*time.Second)
+	conn, err :=
+		net.DialTimeout("tcp", gwAddr, 5*time.Second)
 	if err != nil {
 		// Connection refused/timeout - this is what we expect for blocked traffic
 		t.Logf("Connection blocked as expected: %v", err)
