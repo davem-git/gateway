@@ -8,6 +8,7 @@
 package tests
 
 import (
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -33,20 +34,38 @@ var TCPRouteAuthzWithClientIP = suite.ConformanceTest{
 	Test: func(t *testing.T, suite *suite.ConformanceTestSuite) {
 		ns := "gateway-conformance-infra"
 		tcpRouteNN := types.NamespacedName{Name: "tcp-backend-authorization-ip", Namespace: ns}
+		tcpRouteFqdnNN := types.NamespacedName{Name: "tcp-backend-authorization-fqdn", Namespace: ns}
 		gwNN := types.NamespacedName{Name: "tcp-authorization-backend", Namespace: ns}
-		GatewayAndTCPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, NewGatewayRef(gwNN), tcpRouteNN)
+		GatewayAndTCPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, NewGatewayRef(gwNN), tcpRouteNN, tcpRouteFqdnNN)
 
-		ancestorRef := gwapiv1a2.ParentReference{
+		// Test the blocked route (ip section)
+		ipSection := gwapiv1.SectionName("ip")
+		ancestorRefIP := gwapiv1a2.ParentReference{
 			Group:       gatewayapi.GroupPtr(gwapiv1.GroupName),
 			Kind:        gatewayapi.KindPtr(resource.KindGateway),
 			Namespace:   gatewayapi.NamespacePtr(gwNN.Namespace),
 			Name:        gwapiv1.ObjectName(gwNN.Name),
-			SectionName: (*gwapiv1.SectionName)(&[]gwapiv1.SectionName{"ip"}[0]),
+			SectionName: &ipSection, // fixed unnecessary conversion
 		}
-		SecurityPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "tcp-backend-authorization-ip-security-policy", Namespace: ns}, suite.ControllerName, ancestorRef)
+		SecurityPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "tcp-backend-authorization-ip-security-policy", Namespace: ns}, suite.ControllerName, ancestorRefIP)
+
+		// Test the allowed route (fqdn section)
+		fqdnSection := gwapiv1.SectionName("fqdn")
+		ancestorRefFqdn := gwapiv1a2.ParentReference{
+			Group:       gatewayapi.GroupPtr(gwapiv1.GroupName),
+			Kind:        gatewayapi.KindPtr(resource.KindGateway),
+			Namespace:   gatewayapi.NamespacePtr(gwNN.Namespace),
+			Name:        gwapiv1.ObjectName(gwNN.Name),
+			SectionName: &fqdnSection, // fixed unnecessary conversion
+		}
+		SecurityPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "tcp-backend-authorization-fqdn-security-policy", Namespace: ns}, suite.ControllerName, ancestorRefFqdn)
 
 		t.Run("blocked client IP cannot connect", func(t *testing.T) {
 			testTCPRouteWithBackendBlocked(t, suite, "tcp-authorization-backend", "tcp-backend-authorization-ip", "backend-fqdn")
+		})
+
+		t.Run("allowed client IP can connect", func(t *testing.T) {
+			testTCPRouteWithBackend(t, suite, "tcp-authorization-backend", "tcp-backend-authorization-fqdn", "backend-fqdn")
 		})
 	},
 }
@@ -63,10 +82,8 @@ func testTCPRouteWithBackendBlocked(t *testing.T, suite *suite.ConformanceTestSu
 
 func testTCPConnectionBlocked(t *testing.T, gwAddr string) {
 	// Try to establish a raw TCP connection
-	conn, err :=
-		net.DialTimeout("tcp", gwAddr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", gwAddr, 5*time.Second)
 	if err != nil {
-		// Connection refused/timeout - this is what we expect for blocked traffic
 		t.Logf("Connection blocked as expected: %v", err)
 		return
 	}
@@ -81,21 +98,24 @@ func testTCPConnectionBlocked(t *testing.T, gwAddr string) {
 	}
 
 	// Try to read response with a short timeout
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Logf("Failed to set read deadline: %v", err)
+		return
+	}
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 
-	if err == io.EOF || n == 0 {
-		// Empty reply from server - this matches your curl output
+	if errors.Is(err, io.EOF) || n == 0 {
 		t.Log("Got empty reply from server as expected (connection blocked)")
 		return
 	}
 
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.Log("Connection timed out as expected (connection blocked)")
+		return
+	}
 	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			t.Log("Connection timed out as expected (connection blocked)")
-			return
-		}
 		t.Logf("Connection blocked with error as expected: %v", err)
 		return
 	}
