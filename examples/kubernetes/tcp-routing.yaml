@@ -162,5 +162,4 @@ spec:
     - action: Allow
       principal:
         clientCIDRs:
-        - 192.168.254.0/24
-        - 172.18.0.0/24
+        - 172.18.0.1/32

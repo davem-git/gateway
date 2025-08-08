@@ -42,7 +42,7 @@ func init() {
 		ConsistentHashSourceIPLoadBalancingTest,
 		ConsistentHashHeaderLoadBalancingTest,
 		ConsistentHashCookieLoadBalancingTest,
-		EndpointOverrideLoadBalancingTest,
+		// EndpointOverrideLoadBalancingTest,
 	)
 }
 

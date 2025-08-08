@@ -6,6 +6,7 @@ go 1.24.4
 replace go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.58.0
 
 require (
+	fortio.org/assert v1.2.1
 	fortio.org/fortio v1.69.5
 	fortio.org/log v1.17.2
 	github.com/Masterminds/semver/v3 v3.4.0
