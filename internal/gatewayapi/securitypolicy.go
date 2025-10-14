@@ -727,7 +727,8 @@ func (t *Translator) translateSecurityPolicyForRoute(
 						continue
 					}
 					// Only authorization for TCP
-					r.Authorization = &ir.Authorization{}
+					authCopy := *authorization
+					r.Authorization = &authCopy
 				}
 			}
 		case resource.KindHTTPRoute, resource.KindGRPCRoute:
@@ -911,7 +912,8 @@ func (t *Translator) translateSecurityPolicyForGateway(
 	// Pre-create a TCP-only security feature set (Authorization only) to avoid re-allocation
 	var tcpSecurityFeatures *ir.Authorization
 	if authorization != nil {
-		tcpSecurityFeatures = &ir.Authorization{}
+		authCopy := *authorization
+		tcpSecurityFeatures = &authCopy
 	}
 
 	// Apply to TCP listeners (Authorization only). Support metadata nil fallback by parsing section name from listener name suffix.
