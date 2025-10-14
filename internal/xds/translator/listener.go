@@ -694,7 +694,7 @@ func buildTCPFilterChain(
 		return nil, err
 	}
 
-	if authzFilter, err := buildTCPRBACFilter(statPrefix, irRoute.Authorization); err != nil {
+	if authzFilter, err := buildTCPRBACFilter(statPrefix, irRoute.Security.Authorization); err != nil {
 		return nil, err
 	} else if authzFilter != nil {
 		filters = append(filters, authzFilter)
